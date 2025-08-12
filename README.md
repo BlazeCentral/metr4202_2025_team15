@@ -1,5 +1,11 @@
 # METR4202 Team Project – Exploration & Target Search
 
+## Members
+Blaise
+Harveer
+Genevieve
+Aiden
+
 ## Overview
 This repository contains our codebase for the **METR4202 Robotics & Automation** team project (Semester 2, 2025).  
 Our goal is to develop an autonomous exploration and target search system for the TurtleBot3 Waffle Pi, capable of:
