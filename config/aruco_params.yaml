@@ -1,0 +1,12 @@
+# This file will hold parameters for your custom aruco_detect_publish node.
+# This makes it easy to change marker properties without editing the Python code.
+aruco_detect_node: # This must match the node name in the launch file
+  ros__parameters:
+    # Marker properties as defined in the project brief
+    marker_size_m: 0.10
+    aruco_dictionary_id: "DICT_6X6_250"
+
+    # Tuning parameters for detection and smoothing
+    reprojection_error_threshold: 3.0
+    min_consecutive_hits: 2
+    smoothing_window_size: 5
