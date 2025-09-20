@@ -1,12 +1,13 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>metr4202_2025_team15</name>
-  <version>0.0.0</version>
-  <description>METR4202 Team 15 project package for autonomous exploration.</description>
-  <maintainer email="blaise.delforce@outlook,com">Team 15</maintainer>
+  <name>team15_exploration</name>
+  <version>1.0.0</version>
+  <description>Contains the frontier exploration and navigation node for the METR4202 Team 15 project.</description>
+  <maintainer email="blaise.delforce@outlook.com">Team 15</maintainer>
   <license>Apache-2.0</license>
 
+  <!-- Dependencies based on imports in explore_nav.py -->
   <depend>rclpy</depend>
   <depend>std_srvs</depend>
   <depend>geometry_msgs</depend>
@@ -23,3 +24,4 @@
     <build_type>ament_python</build_type>
   </export>
 </package>
+
