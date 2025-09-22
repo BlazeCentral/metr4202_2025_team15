@@ -103,6 +103,8 @@ class ExploreNavNode(Node):
     # ==============================================================================
     # 2.0 Core Logic Methods
     # ==============================================================================
+    #HARVEER
+   
     def _find_frontiers(self):
         """Processes the current map to find and cluster frontier cells."""
         # --- 2.1.1 Input Validation ---
@@ -162,6 +164,9 @@ class ExploreNavNode(Node):
         self.get_logger().info(f"Found {len(frontiers)} frontier clusters.")
         return frontiers
 
+    #===============================================================
+    #
+    #===============================================================
     def _select_best_goal(self, frontiers):
         """Ranks frontiers and selects the best one as a goal."""
         if not frontiers or self.robot_pose is None:

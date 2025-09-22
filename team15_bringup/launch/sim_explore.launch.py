@@ -13,6 +13,7 @@ def generate_launch_description():
     nav2_params_file = os.path.join(pkg_bringup_share, 'config', 'nav2_params.yaml')
     slam_params_file = os.path.join(pkg_bringup_share, 'config', 'slam_params.yaml')
     aruco_params_file = os.path.join(pkg_bringup_share, 'config', 'aruco_params.yaml')
+    rviz_config_file = os.path.join(pkg_bringup_share, 'rviz', 'main.rviz') # New: path to rviz config
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
 
@@ -53,6 +54,15 @@ def generate_launch_description():
         parameters=[aruco_params_file]
     )
 
+    # New: Node to launch RViz2 with a custom configuration file
+    start_rviz_node_cmd = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        output='screen',
+        arguments=['-d', rviz_config_file]
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true', description='Use simulation (Gazebo) clock'),
         start_gazebo_cmd,
@@ -60,4 +70,5 @@ def generate_launch_description():
         start_nav2_cmd,
         start_explore_nav_node_cmd,
         start_aruco_detect_node_cmd,
+        start_rviz_node_cmd,
     ])
