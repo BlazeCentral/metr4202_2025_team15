@@ -195,7 +195,7 @@ class ExploreNavNode(Node):
                 continue
 
             # --- 2.2.4 Rank Goals ---
-            distance_from_robot = math.hypot(goal_x - self.robot_pose.position.x, goal_y - self.robot_pose.position.y)
+            distance_from_robot = math.hypot(goal_x - self.robot_pose.x, goal_y - self.robot_pose.y)
             if distance_from_robot < 0.3: # Avoid goals that are too close
                 continue
             
@@ -311,8 +311,8 @@ class ExploreNavNode(Node):
             self.get_logger().error(f"❌ Navigation failed with status: {status}")
             if self.robot_pose: # Add the current location to blacklist on failure
                 failed_point = Point()
-                failed_point.x = self.robot_pose.position.x
-                failed_point.y = self.robot_pose.position.y
+                failed_point.x = self.robot_pose.x
+                failed_point.y = self.robot_pose.y
                 self.goal_blacklist.append(failed_point)
                 self.get_logger().info(f"Added ({failed_point.x:.2f}, {failed_point.y:.2f}) to blacklist.")
         
