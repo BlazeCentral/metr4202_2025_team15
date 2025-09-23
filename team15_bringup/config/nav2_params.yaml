@@ -107,7 +107,7 @@ controller_server:
         - "BaseObstacle"
         - "GoalAlign"
         - "PathAlign"
-        - "RotateToGoal"
+        - "RotateToGoal" # maybe remove
       GoalDist:
         scale: 24.0
       PathDist:
