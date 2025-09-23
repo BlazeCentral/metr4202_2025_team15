@@ -233,7 +233,7 @@ class ExploreNavNode(Node):
         """Periodically looks up the robot's pose in the map frame."""
         try:
             transform = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
-            self.robot_pose = transform.transform
+            self.robot_pose = transform.transform.translation #Changed this line to include .translation
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
             self.get_logger().warn(f"Could not transform 'base_link' to 'map': {e}", throttle_duration_sec=5)
 
