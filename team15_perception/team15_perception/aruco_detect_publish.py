@@ -18,6 +18,19 @@ from tf2_ros import TransformException
 from tf2_geometry_msgs import do_transform_pose
 import math
 
+# ==============================================================================
+# Configuration constants (hardcoded)
+# ------------------------------------------------------------------------------
+# These constants replace external YAML parameters so the node is self-contained.
+# Adjust these values here to tune behavior without needing parameter files.
+# ==============================================================================
+ARUCO_DICTIONARY_NAME = "DICT_6X6_250"   # Which OpenCV ArUco dictionary to use
+MARKER_SIZE_METERS = 0.10                 # Physical marker size (edge length) in meters
+REPROJ_ERROR_THRESHOLD_PX = 3.0           # Max allowed average reprojection error (pixels)
+SMOOTHING_WINDOW_SIZE = 5                 # Number of recent detections to average
+MIN_HITS_FOR_PUBLISH = 2                  # Minimum detections before publishing a target
+MAX_TRACK_AGE_SECONDS = 2.0               # Discard detections older than this window
+
 class ArucoDetectPublishNode(Node):
     """
     A ROS2 node to detect ArUco markers, estimate their pose, and publish them.
@@ -28,22 +41,13 @@ class ArucoDetectPublishNode(Node):
         """Initializes the node, its parameters, and ROS interfaces."""
         super().__init__('aruco_detect_publish')
 
-        # --- 1. Declare and Get Parameters ---
-        # This allows the node to be configured from a YAML file.
-        self.declare_parameter("dictionary", "DICT_6X6_250")
-        self.declare_parameter("marker_size_m", 0.10)
-        self.declare_parameter("reproj_error_thresh_px", 3.0)
-        self.declare_parameter("smoothing_window", 5)
-        self.declare_parameter("min_hits_for_publish", 2)
-        self.declare_parameter("max_track_age_sec", 2.0)
-
-        # Retrieve the parameter values
-        dict_name = self.get_parameter("dictionary").get_parameter_value().string_value
-        marker_size_m = self.get_parameter("marker_size_m").get_parameter_value().double_value
-        self.reproj_px_max = self.get_parameter("reproj_error_thresh_px").get_parameter_value().double_value
-        window_N = self.get_parameter("smoothing_window").get_parameter_value().integer_value
-        self.min_hits = self.get_parameter("min_hits_for_publish").get_parameter_value().integer_value
-        self.max_age_s = self.get_parameter("max_track_age_sec").get_parameter_value().double_value
+        # --- 1. Hardcoded configuration (no YAML/parameters required) ---
+        dict_name = ARUCO_DICTIONARY_NAME
+        marker_size_m = MARKER_SIZE_METERS
+        self.reproj_px_max = REPROJ_ERROR_THRESHOLD_PX
+        window_N = SMOOTHING_WINDOW_SIZE
+        self.min_hits = MIN_HITS_FOR_PUBLISH
+        self.max_age_s = MAX_TRACK_AGE_SECONDS
 
         self.get_logger().info(f"Using ArUco dictionary: {dict_name}, Marker size: {marker_size_m}m")
 

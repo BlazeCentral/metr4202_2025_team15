@@ -32,6 +32,15 @@ from nav2_msgs.action import NavigateToPose
 from action_msgs.msg import GoalStatus
 
 
+# ==============================================================================
+# Configuration constants (hardcoded)
+# ------------------------------------------------------------------------------
+# These replace external parameters/YAML so the node is self-contained. Adjust
+# here to tune frontier selection and behavior without touching launch files.
+# ==============================================================================
+BLACKLIST_RADIUS_METERS = 0.5                 # Distance around failed goals to avoid revisiting
+FRONTIER_RANKING_HEURISTIC = 'combined'       # Heuristic label for readability/logging
+
 class ExploreNavNode(Node):
     """
     An autonomous exploration node.
@@ -54,13 +63,10 @@ class ExploreNavNode(Node):
         self.robot_pose = None
         self.get_logger().info("✅ Initialized state variables.")
 
-        # --- 1.2 Declare & Initialize ROS2 Parameters ---
-        self.declare_parameter('blacklist_radius', 0.5)
-        self.declare_parameter('frontier_ranking_heuristic', 'combined')
-        
-        self.blacklist_radius = self.get_parameter('blacklist_radius').get_parameter_value().double_value
-        self.frontier_heuristic = self.get_parameter('frontier_ranking_heuristic').get_parameter_value().string_value
-        self.get_logger().info(f"Parameters loaded: blacklist_radius={self.blacklist_radius}, heuristic='{self.frontier_heuristic}'")
+        # --- 1.2 Hardcoded configuration (no parameters/YAML required) ---
+        self.blacklist_radius = BLACKLIST_RADIUS_METERS
+        self.frontier_heuristic = FRONTIER_RANKING_HEURISTIC
+        self.get_logger().info(f"Config: blacklist_radius={self.blacklist_radius}, heuristic='{self.frontier_heuristic}'")
 
         # --- 1.3 Initialize ROS2 Interfaces ---
         # Define a QoS profile for the map subscriber to ensure we get the latest map

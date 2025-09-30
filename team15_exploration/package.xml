@@ -14,6 +14,14 @@
   <depend>nav_msgs</depend>
   <depend>nav2_msgs</depend>
   <depend>tf2_ros</depend>
+  
+  <!-- Launch file dependencies -->
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <depend>ament_index_python</depend>
+  
+  <!-- Dependencies for combined launch -->
+  <exec_depend>team15_perception</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

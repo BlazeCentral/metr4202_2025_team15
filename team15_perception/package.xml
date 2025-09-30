@@ -14,6 +14,11 @@
   <depend>visualization_msgs</depend>
   <depend>tf2_ros</depend>
   <depend>cv_bridge</depend>
+  
+  <!-- Launch file dependencies -->
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <depend>ament_index_python</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
