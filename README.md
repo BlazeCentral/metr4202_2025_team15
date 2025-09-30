@@ -49,56 +49,48 @@ colcon build --packages-select team15_exploration team15_perception
 
 -----
 
-## 3. Recommended Launch Strategy (Prac 3–4 style)
+## 3. Streamlined 3–4 Terminal Workflow
 
-We run our nodes directly with `ros2 run`. For SLAM and Nav2, we use their official launch files and pass our YAML configuration explicitly.
+Goal: minimize terminals while keeping clarity. Other teams often use this pattern.
 
-Use separate terminals for each component.
-
-### A) Gazebo (Simulation)
+### Terminal 1 — Gazebo (Simulation)
 - Built-in TurtleBot3 world (quick start):
 ```bash
+export TURTLEBOT3_MODEL=waffle_pi
 ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
 ```
 - Custom world (place your file in `worlds/`):
 ```bash
+export TURTLEBOT3_MODEL=waffle_pi
 ros2 launch gazebo_ros empty_world.launch.py \
   world:=/home/blaise/metr4202_ws/src/metr4202_2025_team15/worlds/<your_world>.world
 ```
 
-### B) SLAM Toolbox (mapping mode)
+### Terminal 2 — TurtleBot3 Navigation2 (Nav2 + optional SLAM) + optional RViz
+We use the TB3 navigation launch (Option B) and pass our params. Enable SLAM for mapping mode.
 ```bash
-ros2 launch slam_toolbox online_async_launch.py \
-  slam_params_file:=/home/blaise/metr4202_ws/install/team15_exploration/share/team15_exploration/config/slam_params.yaml \
-  use_sim_time:=true
+export TURTLEBOT3_MODEL=waffle_pi
+ros2 launch turtlebot3_navigation2 navigation2.launch.py \
+  slam:=True use_sim_time:=True \
+  params_file:=/home/blaise/metr4202_ws/install/team15_exploration/share/team15_exploration/config/nav2_params.yaml
 ```
-Alternative (direct node):
+Optional (Step 2 in this same terminal) — RViz2:
 ```bash
-ros2 run slam_toolbox online_async_node --ros-args \
-  --params-file /home/blaise/metr4202_ws/install/team15_exploration/share/team15_exploration/config/slam_params.yaml
-```
-
-### C) Nav2 (navigation)
-```bash
-ros2 launch nav2_bringup navigation_launch.py \
-  params_file:=/home/blaise/metr4202_ws/install/team15_exploration/share/team15_exploration/config/nav2_params.yaml \
-  use_sim_time:=true
-```
-
-### D) RViz2 (optional)
-- If you already saved a config into `rviz/`:
-```bash
+# If you have a saved config:
 rviz2 -d /home/blaise/metr4202_ws/src/metr4202_2025_team15/rviz/my_config.rviz
-```
-- To create one: open `rviz2`, set displays (Fixed Frame: `map`, add Map, TF, LaserScan (`/scan`), MarkerArray (`/targets_viz`), etc.), then save via:
-  File -> Save Config As… -> `metr4202_2025_team15/rviz/my_config.rviz`
 
-### E) Our Nodes (run directly)
-- Exploration node:
+# Or just:
+rviz2
+```
+- To create the config: open RViz2, set Fixed Frame to `map`, add Map, TF, LaserScan (`/scan`), MarkerArray (`/targets_viz`), then File -> Save Config As… to `metr4202_2025_team15/rviz/my_config.rviz`.
+
+### Terminal 3 — Our Exploration node (only)
 ```bash
 ros2 run team15_exploration explore_nav
 ```
-- Perception node:
+- If you only want exploration (no ArUco), you can stop here.
+
+### Optional Terminal 4 — Our ArUco perception node
 ```bash
 ros2 run team15_perception aruco_detect_publish
 ```
