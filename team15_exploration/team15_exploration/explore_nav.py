@@ -26,6 +26,7 @@ import math
 from collections import deque
 
 from nav_msgs.msg import OccupancyGrid
+from nav2_msgs.msg import BehaviorTreeLog
 from geometry_msgs.msg import PoseStamped, Point
 from std_srvs.srv import Trigger
 from nav2_msgs.action import NavigateToPose
@@ -61,7 +62,7 @@ class ExploreNavNode(Node):
         self.is_goal_active = False
         self.goal_blacklist = deque(maxlen=20)  # Store last 20 failed points
         self.robot_pose = None
-        self.get_logger().info("✅ Initialized state variables.")
+        self.get_logger().info("Initialized state variables.")
 
         # --- 1.2 Hardcoded configuration (no parameters/YAML required) ---
         self.blacklist_radius = BLACKLIST_RADIUS_METERS
@@ -103,8 +104,11 @@ class ExploreNavNode(Node):
         
         # Timer to periodically update robot's pose
         self.pose_update_timer = self.create_timer(0.5, self._update_robot_pose)
+        # Timer to continuously check for new goals
+        self.exploration_timer = self.create_timer(1.0, self.goal_cycler)
+
         
-        self.get_logger().info("✅ ROS2 interfaces initialized. Exploration node is ready.")
+        self.get_logger().info("ROS2 interfaces initialized. Exploration node is ready.")
 
     # ==============================================================================
     # 2.0 Core Logic Methods
@@ -164,7 +168,7 @@ class ExploreNavNode(Node):
                                             queue.append((nr_bfs, nc_bfs))
                         
                         # Filter out small, noisy frontiers
-                        if len(current_frontier) > 5:
+                        if len(current_frontier) > 3:
                             frontiers.append(current_frontier)
         
         self.get_logger().info(f"Found {len(frontiers)} frontier clusters.")
@@ -189,6 +193,17 @@ class ExploreNavNode(Node):
             # Convert map coordinates to world coordinates
             goal_x = map_info.origin.position.x + centroid_c * map_info.resolution
             goal_y = map_info.origin.position.y + centroid_r * map_info.resolution
+
+                        # Shift the goal slightly back into known free space
+            direction_x = goal_x - self.robot_pose.x
+            direction_y = goal_y - self.robot_pose.y
+            length = math.hypot(direction_x, direction_y)
+
+            if length > 0.2:  # only adjust if it's not too close already
+                scale = (length - 0.3) / length
+                goal_x = self.robot_pose.x + direction_x * scale
+                goal_y = self.robot_pose.y + direction_y * scale
+
 
             # --- 2.2.3 Filter Blacklisted Goals ---
             is_blacklisted = False
@@ -227,6 +242,21 @@ class ExploreNavNode(Node):
 
         self.get_logger().info(f"Selected best goal at ({best_x:.2f}, {best_y:.2f}) with score {best_score:.2f}")
         return goal_pose
+    
+    def goal_cycler(self):
+        if self.is_goal_active:
+            return
+        if self.map_data is None:
+            return
+        frontier=self._find_frontiers()
+        goal_pose=self._select_best_goal(frontier)
+
+        if goal_pose:
+            self._send_nav2_goal(goal_pose)
+            self.waypoint_publisher.publish(goal_pose)
+        else:
+            self.get_logger().info("All Frontiers explore.")
+
 
     # ==============================================================================
     # 3.0 ROS2 Interface Callbacks
@@ -312,9 +342,9 @@ class ExploreNavNode(Node):
         status = future.result().status
 
         if status == GoalStatus.STATUS_SUCCEEDED:
-            self.get_logger().info("✅ Navigation goal succeeded!")
+            self.get_logger().info(" Navigation goal succeeded!")
         else:
-            self.get_logger().error(f"❌ Navigation failed with status: {status}")
+            self.get_logger().error(f" Navigation failed with status: {status}")
             if self.robot_pose: # Add the current location to blacklist on failure
                 failed_point = Point()
                 failed_point.x = self.robot_pose.x
