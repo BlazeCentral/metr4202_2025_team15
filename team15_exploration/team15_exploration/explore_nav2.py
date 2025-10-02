@@ -26,21 +26,11 @@ import math
 from collections import deque
 
 from nav_msgs.msg import OccupancyGrid
-from nav2_msgs.msg import BehaviorTreeLog
 from geometry_msgs.msg import PoseStamped, Point
 from std_srvs.srv import Trigger
 from nav2_msgs.action import NavigateToPose
 from action_msgs.msg import GoalStatus
 
-
-# ==============================================================================
-# Configuration constants (hardcoded)
-# ------------------------------------------------------------------------------
-# These replace external parameters/YAML so the node is self-contained. Adjust
-# here to tune frontier selection and behavior without touching launch files.
-# ==============================================================================
-BLACKLIST_RADIUS_METERS = 0.2             # Distance around failed goals to avoid revisiting
-FRONTIER_RANKING_HEURISTIC = 'combined'       # Heuristic label for readability/logging
 
 class ExploreNavNode(Node):
     """
@@ -60,16 +50,17 @@ class ExploreNavNode(Node):
         # --- 1.1 Initialize State Variables ---
         self.map_data = None
         self.is_goal_active = False
-        self.goal_blacklist = deque(maxlen=5)  # Store last 20 failed points
+        self.goal_blacklist = deque(maxlen=20)  # Store last 20 failed points
         self.robot_pose = None
-        self.get_logger().info("Initialized state variables.")
+        self.get_logger().info("✅ Initialized state variables.")
 
-        # self.subscription = self.create_subscription(BehaviorTreeLog, '/behavior_tree_log', self.bt_log_callback, 10)
-
-        # --- 1.2 Hardcoded configuration (no parameters/YAML required) ---
-        self.blacklist_radius = BLACKLIST_RADIUS_METERS
-        self.frontier_heuristic = FRONTIER_RANKING_HEURISTIC
-        self.get_logger().info(f"Config: blacklist_radius={self.blacklist_radius}, heuristic='{self.frontier_heuristic}'")
+        # --- 1.2 Declare & Initialize ROS2 Parameters ---
+        self.declare_parameter('blacklist_radius', 0.5)
+        self.declare_parameter('frontier_ranking_heuristic', 'combined')
+        
+        self.blacklist_radius = self.get_parameter('blacklist_radius').get_parameter_value().double_value
+        self.frontier_heuristic = self.get_parameter('frontier_ranking_heuristic').get_parameter_value().string_value
+        self.get_logger().info(f"Parameters loaded: blacklist_radius={self.blacklist_radius}, heuristic='{self.frontier_heuristic}'")
 
         # --- 1.3 Initialize ROS2 Interfaces ---
         # Define a QoS profile for the map subscriber to ensure we get the latest map
@@ -106,11 +97,8 @@ class ExploreNavNode(Node):
         
         # Timer to periodically update robot's pose
         self.pose_update_timer = self.create_timer(0.5, self._update_robot_pose)
-        # Timer to continuously check for new goals
-        self.exploration_timer = self.create_timer(1.0, self.goal_cycler)
-
         
-        self.get_logger().info("ROS2 interfaces initialized. Exploration node is ready.")
+        self.get_logger().info("✅ ROS2 interfaces initialized. Exploration node is ready.")
 
     # ==============================================================================
     # 2.0 Core Logic Methods
@@ -170,7 +158,7 @@ class ExploreNavNode(Node):
                                             queue.append((nr_bfs, nc_bfs))
                         
                         # Filter out small, noisy frontiers
-                        if len(current_frontier) > 8:
+                        if len(current_frontier) > 5:
                             frontiers.append(current_frontier)
         
         self.get_logger().info(f"Found {len(frontiers)} frontier clusters.")
@@ -186,60 +174,36 @@ class ExploreNavNode(Node):
 
         ranked_goals = []
         map_info = self.map_data.info
-        map_array = np.array(self.map_data.data).reshape((map_info.height, map_info.width))
         
         for frontier in frontiers:
-            best_goal_candidate = None
-            min_dist_to_robot = float('inf')
+            # --- 2.2.2 Process Clusters ---
+            centroid_r = sum(p[0] for p in frontier) / len(frontier)
+            centroid_c = sum(p[1] for p in frontier) / len(frontier)
 
-            # --- 2.2.2 Process Clusters and find the best free-space goal ---
-            # Iterate through all frontier cells (r_f, c_f) in the cluster
-            for r_f, c_f in frontier:
-                # Check all 8 neighbors of the frontier cell (r_f, c_f)
-                for dr in [-1, 0, 1]:
-                    for dc in [-1, 0, 1]:
-                        if dr == 0 and dc == 0:
-                            continue
-                        
-                        r_free, c_free = r_f + dr, c_f + dc
-                        
-                        # Check map bounds
-                        if 0 <= r_free < map_info.height and 0 <= c_free < map_info.width:
-                            
-                            # Candidate must be a known free cell (0) to be a valid goal
-                            if map_array[r_free, c_free] == 0:
-                                # Convert to world coordinates (using center of cell)
-                                candidate_x = map_info.origin.position.x + (c_free + 0.5) * map_info.resolution
-                                candidate_y = map_info.origin.position.y + (r_free + 0.5) * map_info.resolution
-                                
-                                # --- 2.2.3 Filter Blacklisted Goals ---
-                                is_blacklisted = False
-                                for bp in self.goal_blacklist:
-                                    dist = math.hypot(candidate_x - bp.x, candidate_y - bp.y)
-                                    if dist < self.blacklist_radius:
-                                        is_blacklisted = True
-                                        break
-                                if is_blacklisted:
-                                    continue
+            # Convert map coordinates to world coordinates
+            goal_x = map_info.origin.position.x + centroid_c * map_info.resolution
+            goal_y = map_info.origin.position.y + centroid_r * map_info.resolution
 
-                                # --- 2.2.4 Rank Goals ---
-                                distance_from_robot = math.hypot(candidate_x - self.robot_pose.x, candidate_y - self.robot_pose.y)
-                                
-                                # Select the goal candidate on the free-space side with the best score 
-                                # (closest to robot, but not too close, maximizing coverage/size)
-                                if distance_from_robot > 0.5:
-                                    size = len(frontier)
-                                    # Use the heuristic: size / distance
-                                    score = size / distance_from_robot
-                                    
-                                    # Track the best scoring goal for this frontier
-                                    if not best_goal_candidate or score > best_goal_candidate[0]:
-                                        best_goal_candidate = (score, candidate_x, candidate_y)
+            # --- 2.2.3 Filter Blacklisted Goals ---
+            is_blacklisted = False
+            for bp in self.goal_blacklist:
+                dist = math.hypot(goal_x - bp.x, goal_y - bp.y)
+                if dist < self.blacklist_radius:
+                    is_blacklisted = True
+                    break
+            if is_blacklisted:
+                continue
+
+            # --- 2.2.4 Rank Goals ---
+            distance_from_robot = math.hypot(goal_x - self.robot_pose.position.x, goal_y - self.robot_pose.position.y)
+            if distance_from_robot < 0.3: # Avoid goals that are too close
+                continue
             
-            # If a valid goal was found for this frontier cluster, add it to the list
-            if best_goal_candidate:
-                ranked_goals.append(best_goal_candidate)
-
+            size = len(frontier)
+            # This heuristic is part of the project's 'search efficiency' goal.
+            score = size / distance_from_robot if distance_from_robot > 0 else 0
+            
+            ranked_goals.append((score, goal_x, goal_y))
 
         if not ranked_goals:
             return None
@@ -253,31 +217,10 @@ class ExploreNavNode(Node):
         goal_pose.header.stamp = self.get_clock().now().to_msg()
         goal_pose.pose.position.x = best_x
         goal_pose.pose.position.y = best_y
-        
-        # Orient the robot toward the frontier by calculating the angle from the robot to the goal
-        angle = math.atan2(best_y - self.robot_pose.y, best_x - self.robot_pose.x)
-        
-        # Convert yaw angle to quaternion (qx, qy, qz, qw)
-        goal_pose.pose.orientation.z = math.sin(angle / 2.0)
-        goal_pose.pose.orientation.w = math.cos(angle / 2.0)
+        goal_pose.pose.orientation.w = 1.0 # Neutral orientation
 
         self.get_logger().info(f"Selected best goal at ({best_x:.2f}, {best_y:.2f}) with score {best_score:.2f}")
         return goal_pose
-    
-    def goal_cycler(self):
-        if self.is_goal_active:
-            return
-        if self.map_data is None:
-            return
-        frontier=self._find_frontiers()
-        goal_pose=self._select_best_goal(frontier)
-
-        if goal_pose:
-            self._send_nav2_goal(goal_pose)
-            self.waypoint_publisher.publish(goal_pose)
-        else:
-            self.get_logger().info("All Frontiers explore.")
-
 
     # ==============================================================================
     # 3.0 ROS2 Interface Callbacks
@@ -289,12 +232,10 @@ class ExploreNavNode(Node):
     def _update_robot_pose(self):
         """Periodically looks up the robot's pose in the map frame."""
         try:
-            # Change 'base_link' to 'base_footprint' for consistency with SLAM/Nav2 configs
-            transform = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
-            self.robot_pose = transform.transform.translation
+            transform = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+            self.robot_pose = transform.transform.translation #Changed this line to include .translation
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
-            self.get_logger().warn(f"Could not transform 'base_footprint' to 'map': {e}", throttle_duration_sec=5)
-
+            self.get_logger().warn(f"Could not transform 'base_link' to 'map': {e}", throttle_duration_sec=5)
 
     def _service_callback(self, request, response):
         """Orchestrates the exploration cycle when the service is called."""
@@ -365,13 +306,13 @@ class ExploreNavNode(Node):
         status = future.result().status
 
         if status == GoalStatus.STATUS_SUCCEEDED:
-            self.get_logger().info(" Navigation goal succeeded!")
+            self.get_logger().info("✅ Navigation goal succeeded!")
         else:
-            self.get_logger().error(f" Navigation failed with status: {status}")
+            self.get_logger().error(f"❌ Navigation failed with status: {status}")
             if self.robot_pose: # Add the current location to blacklist on failure
                 failed_point = Point()
-                failed_point.x = self.robot_pose.x
-                failed_point.y = self.robot_pose.y
+                failed_point.x = self.robot_pose.position.x
+                failed_point.y = self.robot_pose.position.y
                 self.goal_blacklist.append(failed_point)
                 self.get_logger().info(f"Added ({failed_point.x:.2f}, {failed_point.y:.2f}) to blacklist.")
         

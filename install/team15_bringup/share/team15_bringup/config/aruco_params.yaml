@@ -1,0 +1,11 @@
+# Parameters for the aruco_detect_publish node.
+# The top-level key must match the node name in the launch file.
+aruco_detect_publish:
+  ros__parameters:
+    # These names now perfectly match the declarations in the Python script.
+    dictionary: "DICT_6X6_250"
+    marker_size_m: 0.10
+    reproj_error_thresh_px: 3.0
+    smoothing_window: 5
+    min_hits_for_publish: 2
+    max_track_age_sec: 2.0
