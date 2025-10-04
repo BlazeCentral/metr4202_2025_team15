@@ -2,7 +2,7 @@
 
 # METR4202 Team 15 – TurtleBot3 Exploration + Perception
 
-This repository provides a minimal, robust ROS 2 (Humble) workspace for autonomous exploration (frontiers + Nav2) and ArUco perception on TurtleBot3 Waffle Pi. It avoids custom bringup/launch packages in favor of running our nodes directly while using official launch files for upstream stacks (SLAM Toolbox, Nav2, Gazebo, RViz2).
+
 
 -----
 
@@ -16,7 +16,7 @@ This repository provides a minimal, robust ROS 2 (Humble) workspace for autonomo
   - `team15_perception/aruco_detect_publish.py`: ArUco detection/smoothing node. Publishes `/targets` (PoseArray) and `/targets_viz` (MarkerArray).
   - Hardcoded tuning constants are at the top of the file (no YAML needed for this node).
 
-- `metr4202_2025_team15/team15_exploration/config`
+- `metr4202_2025_team15/team15_exploration/config` [NOT USED ANYMORE]
   - `slam_params.yaml`: SLAM Toolbox parameters (Prac 3 style).
   - `nav2_params.yaml`: Nav2 parameters (Prac 4 style DWB, costmaps, etc.).
 
@@ -47,52 +47,28 @@ cd ~/metr4202_ws
 colcon build --packages-select team15_exploration team15_perception
 ```
 
------
 
-## 3. Streamlined 3–4 Terminal Workflow
+## 4.  Combined SLAM+Nav2 (3 Terminal Workflow)
 
-Goal: minimize terminals while keeping clarity. Other teams often use this pattern.
+If you prefer fewer terminals, you can combine SLAM and Nav2:
 
-### Terminal 1 — Gazebo (Simulation)
-- Built-in TurtleBot3 world (quick start):
+### Terminal 1 — Gazebo (headless)
 ```bash
 export TURTLEBOT3_MODEL=waffle_pi
 ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
 ```
-- Custom world (place your file in `worlds/`):
-```bash
-export TURTLEBOT3_MODEL=waffle_pi
-ros2 launch gazebo_ros empty_world.launch.py \
-  world:=/home/blaise/metr4202_ws/src/metr4202_2025_team15/worlds/<your_world>.world
-```
 
-### Terminal 2 — TurtleBot3 Navigation2 (Nav2 + optional SLAM) + optional RViz
-We use the TB3 navigation launch (Option B) and pass our params. Enable SLAM for mapping mode.
+### Terminal 2 — TurtleBot3 Navigation2 (Nav2 + SLAM combined)
 ```bash
 export TURTLEBOT3_MODEL=waffle_pi
 ros2 launch turtlebot3_navigation2 navigation2.launch.py \
   slam:=True use_sim_time:=True \
-  params_file:=/home/blaise/metr4202_ws/install/team15_exploration/share/team15_exploration/config/nav2_params.yaml
+  
 ```
-Optional (Step 2 in this same terminal) — RViz2:
-```bash
-# If you have a saved config:
-rviz2 -d /home/blaise/metr4202_ws/src/metr4202_2025_team15/rviz/my_config.rviz
 
-# Or just:
-rviz2
-```
-- To create the config: open RViz2, set Fixed Frame to `map`, add Map, TF, LaserScan (`/scan`), MarkerArray (`/targets_viz`), then File -> Save Config As… to `metr4202_2025_team15/rviz/my_config.rviz`.
-
-### Terminal 3 — Our Exploration node (only)
+### Terminal 3 — Our Exploration node
 ```bash
 ros2 run team15_exploration explore_nav
-```
-- If you only want exploration (no ArUco), you can stop here.
-
-### Optional Terminal 4 — Our ArUco perception node
-```bash
-ros2 run team15_perception aruco_detect_publish
 ```
 
 -----
@@ -131,14 +107,12 @@ This creates `<map_name>.pgm` and `<map_name>.yaml` in `maps/`.
 ```bash
 ros2 launch nav2_bringup localization_launch.py \
   map:=/home/blaise/metr4202_ws/src/metr4202_2025_team15/maps/<map_name>.yaml \
-  params_file:=/home/blaise/metr4202_ws/install/team15_exploration/share/team15_exploration/config/nav2_params.yaml \
   use_sim_time:=true
 ```
 - Full navigation with predefined map:
 ```bash
 ros2 launch nav2_bringup navigation_launch.py \
   map:=/home/blaise/metr4202_ws/src/metr4202_2025_team15/maps/<map_name>.yaml \
-  params_file:=/home/blaise/metr4202_ws/install/team15_exploration/share/team15_exploration/config/nav2_params.yaml \
   use_sim_time:=true
 ```
 
