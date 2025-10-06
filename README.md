@@ -16,9 +16,6 @@
   - `team15_perception/aruco_detect_publish.py`: ArUco detection/smoothing node. Publishes `/targets` (PoseArray) and `/targets_viz` (MarkerArray).
   - Hardcoded tuning constants are at the top of the file (no YAML needed for this node).
 
-- `metr4202_2025_team15/team15_exploration/config` [NOT USED ANYMORE]
-  - `slam_params.yaml`: SLAM Toolbox parameters (Prac 3 style).
-  - `nav2_params.yaml`: Nav2 parameters (Prac 4 style DWB, costmaps, etc.).
 
 - `metr4202_2025_team15/rviz`
   - Store your RViz2 configurations here (e.g., `my_config.rviz`).
