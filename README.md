@@ -143,8 +143,19 @@ ros2 launch gazebo_ros empty_world.launch.py \
 
 -----
 
-## 10. Notes  Pracs 3–4
-
-- Prac 3 (SLAM): correct frames (`map`, `odom`, `base_link`/`base_footprint`), `scan_topic`, and resolution matter.
-- Prac 4 (Nav2): tune controller critics, speeds, accels, inflation, and behavior tree.
-- Start with the provided YAMLs and iterate during testing.
+## 10. Referencing
+/**
+ ******************************************************************************
+ * @file   explore_nav.py
+ * @author  METR_TEAM_15
+ * @date    6/10/2025
+ * @brief   Interim Explore/Nav Node
+ *
+ * REF: Gemini AI was conversed with the develop a pseudocode with inspiration from pracs and provided files.
+    Our team worked together to get a proper flow diagram sufficient enough to the point
+   Where we passed it into Gemini and turned it into working python code which was implemented
+   in the explore_nav node.
+   REF: Other Areas AI was used was in developing ideas on fixing issues such as blacklist,
+   generating the file structure diagram, fixing launch issues and generating readme and refining comments.
+ ******************************************************************************
+ */
