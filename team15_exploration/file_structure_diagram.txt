@@ -1,0 +1,24 @@
+team15_exploration/
+│
+├── package.xml                                    # ROS2 package manifest - defines package metadata, dependencies, and build configuration
+├── setup.py                                       # Python package setup script - configures package installation and entry points
+├── setup.cfg                                      # Python package configuration file - sets up code quality tools
+│
+├── team15_exploration/                            # Main Python package directory
+│   ├── __init__.py                               # Python package initialization file - makes directory a Python package
+│   ├── explore_nav.py                            # Main exploration and navigation node - implements frontier-based exploration algorithm
+│   └── explore_nav2.py                           # Alternative exploration implementation - backup or experimental version
+│
+├── config/                                        # Configuration files directory
+│   ├── nav2_params.yaml                          # Navigation2 stack parameters - controls robot navigation behavior (AMCL, planners, etc.)
+│   └── slam_params.yaml                          # SLAM Toolbox parameters - defines mapping settings, frame IDs, and map resolution
+│
+├── launch/                                        # Launch files directory (currently empty)
+│
+├── test/                                          # Test files directory
+│   ├── test_copyright.py                         # Copyright header validation test - ensures all files have proper copyright notices
+│   ├── test_flake8.py                            # Code style validation test - checks Python code follows PEP8 style guidelines
+│   └── test_pep257.py                            # Documentation string validation test - ensures proper docstring formatting
+│
+└── resource/                                      # Resource files directory
+    └── team15_exploration                         # Package resource marker file - identifies this as a ROS2 package resource
