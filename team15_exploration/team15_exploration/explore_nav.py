@@ -48,7 +48,50 @@ SCORING_CLUSTER_SIZE_WEIGHT = 1.0        # A: Weight for frontier cluster size
 SCORING_DISTANCE_WEIGHT = -0.5           # B: Weight for distance (negative = prefer closer)
 SCORING_OBSTACLE_WEIGHT = -2.0           # C: Weight for nearby obstacles (negative = avoid obstacles)
 OBSTACLE_DETECTION_RADIUS = 1.0          # Radius to check for obstacles around goal
-MIN_WALL_DISTANCE = 0.4                  # Minimum distance from walls (meters)
+MIN_WALL_DISTANCE = 0.3                  # Minimum distance from walls (meters)
+
+# Navigation and exploration parameters
+MIN_GOAL_DISTANCE = 1.25                 # Minimum distance from robot for goal selection
+UNKNOWN_SPACE_R1 = 1.25                  # First target radius for unknown space search
+UNKNOWN_SPACE_R2 = 2.0                   # Second target radius for unknown space search
+UNKNOWN_SPACE_TOLERANCE = 0.1            # Tolerance for radius matching
+EXPLORATION_BOOST = 2.0                  # Score boost for unknown space goals
+LOCAL_VALIDATION_RADIUS = 2.0            # Only validate first 2.0m of paths
+MAX_COST_THRESHOLD = 30                  # Maximum cost threshold for path validation
+OBSTACLE_THRESHOLD = 50                  # Occupancy grid value threshold for obstacles
+
+# Timer intervals (seconds)
+POSE_UPDATE_INTERVAL = 0.5               # Robot pose update frequency
+EXPLORATION_INTERVAL = 3.5               # Goal selection frequency
+BLACKLIST_MANAGER_INTERVAL = 2.0         # Blacklist management frequency
+PATH_MONITOR_INTERVAL = 2.0              # Path cost monitoring frequency
+NAV_STATUS_INTERVAL = 3.0                # Navigation status logging frequency
+BT_TOPIC_CHECK_INTERVAL = 5.0            # Behavior tree topic check frequency
+STUCK_DETECTOR_INTERVAL = 2.0            # Stuck robot detection frequency
+GOAL_TIMEOUT_CHECK_INTERVAL = 5.0        # Goal timeout check frequency
+
+# Timeout and threshold values
+BLACKLIST_TIMEOUT = 30                   # Blacklist entry timeout (seconds)
+RECOVERY_MODE_TIMEOUT = 40                # Recovery mode maximum duration (seconds)
+GOAL_TIMEOUT = 60                         # Goal timeout threshold (seconds)
+STUCK_DETECTION_THRESHOLD = 0.1          # Movement threshold for stuck detection (meters)
+STUCK_DETECTION_TIME = 10                # Time to consider robot stuck (seconds)
+RECOVERY_MODE_DISTANCE = 0.4             # Minimum distance in recovery mode (meters)
+BLACKLIST_DEQUE_SIZE = 5                 # Maximum blacklist entries
+RECOVERY_TRIGGER_COUNT = 3               # Failed goals to trigger recovery mode
+
+# Path validation parameters
+MIN_PATH_SAMPLES = 10                    # Minimum samples for path validation
+ALTERNATIVE_PATH_OFFSETS = [0.5, 1.0, 1.5, 2.0]  # Alternative path offsets (meters)
+MIN_ALTERNATIVE_DISTANCE = 0.1          # Minimum distance for alternative paths
+
+# Behavior tree status codes
+BT_STATUS_IDLE = 1
+BT_STATUS_RUNNING = 2
+BT_STATUS_SUCCESS = 3
+BT_STATUS_FAILURE = 4
+BT_STATUS_CANCELLED = 5
+BT_STATUS_SKIPPED = 6
 
 class ExploreNavNode(Node):
     """
@@ -68,7 +111,7 @@ class ExploreNavNode(Node):
         # --- 1.1 Initialize State Variables ---
         self.map_data = None
         self.is_goal_active = False
-        self.goal_blacklist = deque(maxlen=5)  # Store last 20 failed points
+        self.goal_blacklist = deque(maxlen=BLACKLIST_DEQUE_SIZE)  # Store failed points
         self.blacklist_timers = {}  # Track when goals were blacklisted
         self.robot_pose = None
         self.last_robot_pose = None
@@ -96,7 +139,7 @@ class ExploreNavNode(Node):
 
         # --- 1.2 Hardcoded configuration (no parameters/YAML required) ---
         self.blacklist_radius = BLACKLIST_RADIUS_METERS
-        self.min_goal_distance = 1.25 # Minimum distance from robot for goal selection
+        self.min_goal_distance = MIN_GOAL_DISTANCE # Minimum distance from robot for goal selection
         self.min_wall_distance = MIN_WALL_DISTANCE  # Minimum distance from walls
         self.frontier_heuristic = FRONTIER_RANKING_HEURISTIC
         self.get_logger().info(f"Config: blacklist_radius={self.blacklist_radius}, min_goal_distance={self.min_goal_distance}, min_wall_distance={self.min_wall_distance}, heuristic='{self.frontier_heuristic}'")
@@ -135,21 +178,21 @@ class ExploreNavNode(Node):
         self.waypoint_publisher = self.create_publisher(PoseStamped, '/next_waypoint_viz', 10)
         
         # Timer to periodically update robot's pose
-        self.pose_update_timer = self.create_timer(0.5, self._update_robot_pose)
+        self.pose_update_timer = self.create_timer(POSE_UPDATE_INTERVAL, self._update_robot_pose)
         # Timer to continuously check for new goals
-        self.exploration_timer = self.create_timer(1.0, self.goal_cycler)
+        self.exploration_timer = self.create_timer(EXPLORATION_INTERVAL, self.goal_cycler)
         # Timer to manage blacklist timers and recovery mode
-        self.blacklist_manager_timer = self.create_timer(2.0, self._manage_blacklist_timers)
+        self.blacklist_manager_timer = self.create_timer(BLACKLIST_MANAGER_INTERVAL, self._manage_blacklist_timers)
         # Timer to monitor path cost during navigation
-        self.path_monitor_timer = self.create_timer(2.0, self._monitor_path_cost)
+        self.path_monitor_timer = self.create_timer(PATH_MONITOR_INTERVAL, self._monitor_path_cost)
         # Timer to show navigation status during active goals
-        self.nav_status_timer = self.create_timer(3.0, self._log_navigation_status)
+        self.nav_status_timer = self.create_timer(NAV_STATUS_INTERVAL, self._log_navigation_status)
         # Timer to check if behavior tree topic is available
-        self.bt_topic_checker = self.create_timer(5.0, self._check_bt_topic)
+        self.bt_topic_checker = self.create_timer(BT_TOPIC_CHECK_INTERVAL, self._check_bt_topic)
         # Timer to detect if robot is stuck/stationary
-        self.stuck_detector_timer = self.create_timer(2.0, self._detect_stuck_robot)
+        self.stuck_detector_timer = self.create_timer(STUCK_DETECTOR_INTERVAL, self._detect_stuck_robot)
         # Timer to check for goal timeouts
-        self.goal_timeout_timer = self.create_timer(5.0, self._check_goal_timeout)
+        self.goal_timeout_timer = self.create_timer(GOAL_TIMEOUT_CHECK_INTERVAL, self._check_goal_timeout)
 
         
         self.get_logger().info("ROS2 interfaces initialized. Exploration node is ready.")
@@ -246,8 +289,8 @@ class ExploreNavNode(Node):
                     check_r = goal_r + dr
                     check_c = goal_c + dc
                     if 0 <= check_r < map_info.height and 0 <= check_c < map_info.width:
-                        # Count obstacles (value > 50 in occupancy grid)
-                        if map_array[check_r, check_c] > 50:
+                        # Count obstacles (value > OBSTACLE_THRESHOLD in occupancy grid)
+                        if map_array[check_r, check_c] > OBSTACLE_THRESHOLD:
                             obstacle_count += 1
         
         return obstacle_count
@@ -278,7 +321,7 @@ class ExploreNavNode(Node):
                     check_c = goal_c + dc
                     if 0 <= check_r < map_info.height and 0 <= check_c < map_info.width:
                         # Check if there's a wall/obstacle within minimum distance
-                        if map_array[check_r, check_c] > 50:  # Obstacle threshold
+                        if map_array[check_r, check_c] > OBSTACLE_THRESHOLD:  # Obstacle threshold
                             return False
         
         return True
@@ -323,9 +366,9 @@ class ExploreNavNode(Node):
         map_array = np.array(self.map_data.data).reshape((map_info.height, map_info.width))
         
         # Define target radii
-        R1 = self.min_goal_distance  # 1.25m
-        R2 = 2.0  # 2.0m
-        search_radius = R2 + 0.1  # Search within R2 + 0.1m
+        R1 = self.min_goal_distance  # MIN_GOAL_DISTANCE
+        R2 = UNKNOWN_SPACE_R2  # UNKNOWN_SPACE_R2
+        search_radius = R2 + UNKNOWN_SPACE_TOLERANCE  # Search within R2 + tolerance
         
         # Convert robot position to map coordinates
         robot_c = int((self.robot_pose.x - map_info.origin.position.x) / map_info.resolution)
@@ -347,8 +390,8 @@ class ExploreNavNode(Node):
                 if distance > search_radius:
                     continue
                 
-                # Check if distance is within ±0.1m of R1 or R2
-                if not (abs(distance - R1) <= 0.1 or abs(distance - R2) <= 0.1):
+                # Check if distance is within tolerance of R1 or R2
+                if not (abs(distance - R1) <= UNKNOWN_SPACE_TOLERANCE or abs(distance - R2) <= UNKNOWN_SPACE_TOLERANCE):
                     continue
                 
                 # Calculate candidate position
@@ -363,7 +406,7 @@ class ExploreNavNode(Node):
                 if map_array[candidate_r, candidate_c] != -1:
                     continue
                 
-                # Convert to world coordinates
+                # Convert to world coordinates (center of cell)
                 candidate_x = map_info.origin.position.x + (candidate_c + 0.5) * map_info.resolution
                 candidate_y = map_info.origin.position.y + (candidate_r + 0.5) * map_info.resolution
                 
@@ -380,7 +423,7 @@ class ExploreNavNode(Node):
                 if not is_blacklisted and goal_key in self.blacklist_timers:
                     current_time = self.get_clock().now()
                     time_since_blacklist = (current_time - self.blacklist_timers[goal_key]).nanoseconds / 1e9
-                    if time_since_blacklist < 30:
+                    if time_since_blacklist < BLACKLIST_TIMEOUT:
                         is_blacklisted = True
                 
                 if is_blacklisted:
@@ -409,8 +452,8 @@ class ExploreNavNode(Node):
             distance_from_robot = math.hypot(best_x - self.robot_pose.x, best_y - self.robot_pose.y)
             obstacle_count = self._count_nearby_obstacles(best_x, best_y)
             
-            # Apply exploration boost (+2.0) for unknown space goals
-            exploration_boost = 2.0
+            # Apply exploration boost for unknown space goals
+            exploration_boost = EXPLORATION_BOOST
             score = (SCORING_DISTANCE_WEIGHT * distance_from_robot + 
                     SCORING_OBSTACLE_WEIGHT * obstacle_count + 
                     exploration_boost)
@@ -423,11 +466,11 @@ class ExploreNavNode(Node):
         """Manage blacklist timers and recovery mode."""
         current_time = self.get_clock().now()
         
-        # Check for expired blacklist entries (30 seconds)
+        # Check for expired blacklist entries
         expired_entries = []
         for goal_key, blacklist_time in self.blacklist_timers.items():
             time_since_blacklist = (current_time - blacklist_time).nanoseconds / 1e9
-            if time_since_blacklist > 30:  # 30 seconds
+            if time_since_blacklist > BLACKLIST_TIMEOUT:
                 expired_entries.append(goal_key)
         
         # Remove expired entries
@@ -435,17 +478,17 @@ class ExploreNavNode(Node):
             del self.blacklist_timers[goal_key]
             # Remove from blacklist deque
             for i, point in enumerate(self.goal_blacklist):
-                if abs(point.x - goal_key[0]) < 0.1 and abs(point.y - goal_key[1]) < 0.1:
+                if abs(point.x - goal_key[0]) < UNKNOWN_SPACE_TOLERANCE and abs(point.y - goal_key[1]) < UNKNOWN_SPACE_TOLERANCE:
                     self.goal_blacklist.remove(point)
                     break
         
         if expired_entries:
             self.get_logger().info(f"🕒 Removed {len(expired_entries)} expired blacklist entries")
         
-        # Check recovery mode timeout (30-40 seconds)
+        # Check recovery mode timeout
         if self.recovery_mode and self.recovery_start_time:
             recovery_duration = (current_time - self.recovery_start_time).nanoseconds / 1e9
-            if recovery_duration > 40:  # 40 seconds max recovery time
+            if recovery_duration > RECOVERY_MODE_TIMEOUT:
                 self.recovery_mode = False
                 self.recovery_start_time = None
                 self.get_logger().info("🔄 Recovery mode ended - returning to normal exploration")
@@ -456,10 +499,10 @@ class ExploreNavNode(Node):
             self.recovery_mode = True
             self.recovery_start_time = self.get_clock().now()
             self.get_logger().warn("🚨 RECOVERY MODE ACTIVATED!")
-            self.get_logger().warn("🔧 Allowing goals as close as 0.4m for 30-40 seconds")
+            self.get_logger().warn(f"🔧 Allowing goals as close as {RECOVERY_MODE_DISTANCE}m for {RECOVERY_MODE_TIMEOUT} seconds")
             self.get_logger().warn("🎯 Robot will be pushed to move away from current position")
 
-    def _validate_path_cost(self, start_x, start_y, goal_x, goal_y, max_cost_threshold=30):
+    def _validate_path_cost(self, start_x, start_y, goal_x, goal_y, max_cost_threshold=MAX_COST_THRESHOLD):
         """Validate that the path from start to goal doesn't go through high-cost regions."""
         if self.map_data is None:
             return True  # If no map data, assume path is valid
@@ -473,16 +516,27 @@ class ExploreNavNode(Node):
         goal_c = int((goal_x - map_info.origin.position.x) / map_info.resolution)
         goal_r = int((goal_y - map_info.origin.position.y) / map_info.resolution)
         
+        # Define local validation radius - only strictly validate the first LOCAL_VALIDATION_RADIUS meters of the path
+        
         # Simple line-of-sight path validation
         # Sample points along the straight-line path
         distance = math.sqrt((goal_x - start_x)**2 + (goal_y - start_y)**2)
-        num_samples = max(10, int(distance / map_info.resolution))
+        num_samples = max(MIN_PATH_SAMPLES, int(distance / map_info.resolution))
         
         for i in range(num_samples + 1):
             # Interpolate along the path
             t = i / num_samples
             sample_x = start_x + t * (goal_x - start_x)
             sample_y = start_y + t * (goal_y - start_y)
+            
+            # Calculate distance of sample point from the starting point
+            current_distance = math.hypot(sample_x - start_x, sample_y - start_y)
+            
+            # --- NEW LOGIC: SEGMENTED VALIDATION ---
+            if current_distance > LOCAL_VALIDATION_RADIUS:
+                # If the path is clear for the first 2.0m, assume Nav2's global planner can handle the rest.
+                return True
+            # ---------------------------------------
             
             # Convert to map coordinates
             sample_c = int((sample_x - map_info.origin.position.x) / map_info.resolution)
@@ -497,7 +551,7 @@ class ExploreNavNode(Node):
                     self.get_logger().debug(f"Path validation failed: high cost cell at ({sample_x:.2f}, {sample_y:.2f}) with value {cell_value}")
                     return False
         
-        return True
+        return True  # Path is clear up to 2.0m or the entire path was short and clear
 
     def _find_alternative_path(self, start_x, start_y, goal_x, goal_y):
         """Find alternative paths when direct path has high cost."""
@@ -512,7 +566,7 @@ class ExploreNavNode(Node):
         dy = goal_y - start_y
         distance = math.sqrt(dx*dx + dy*dy)
         
-        if distance < 0.1:  # Too close, no alternative needed
+        if distance < MIN_ALTERNATIVE_DISTANCE:  # Too close, no alternative needed
             return None
         
         # Normalize direction vector
@@ -526,7 +580,7 @@ class ExploreNavNode(Node):
         perp_right_y = -dx_norm
         
         # Try alternative paths with different offsets
-        offsets = [0.5, 1.0, 1.5, 2.0]  # meters
+        offsets = ALTERNATIVE_PATH_OFFSETS  # meters
         
         for offset in offsets:
             # Try left side
@@ -622,8 +676,8 @@ class ExploreNavNode(Node):
                 (current_pose[1] - self.last_robot_pose[1])**2
             )
             
-            # If robot hasn't moved much (less than 0.1m)
-            if distance_moved < 0.1:
+            # If robot hasn't moved much (less than STUCK_DETECTION_THRESHOLD)
+            if distance_moved < STUCK_DETECTION_THRESHOLD:
                 if self.stationary_start_time is None:
                     self.stationary_start_time = current_time
                     self.get_logger().warn("⚠️ Robot appears to be stationary - starting stuck detection timer")
@@ -631,14 +685,14 @@ class ExploreNavNode(Node):
                     # Calculate how long robot has been stationary
                     stationary_duration = (current_time - self.stationary_start_time).nanoseconds / 1e9
                     
-                    if stationary_duration > 10:  # 10 seconds
+                    if stationary_duration > STUCK_DETECTION_TIME:
                         self.get_logger().error(f"🚨 ROBOT STUCK DETECTED! Stationary for {stationary_duration:.1f} seconds")
                         self.get_logger().error(f"📍 Current position: ({current_pose[0]:.2f}, {current_pose[1]:.2f})")
                         
                         # Provide diagnostic information
                         self._diagnose_stuck_robot(stationary_duration)
                         
-                    elif stationary_duration > 5:  # 5 seconds
+                    elif stationary_duration > STUCK_DETECTION_TIME / 2:
                         self.get_logger().warn(f"⚠️ Robot stationary for {stationary_duration:.1f}s - monitoring...")
             else:
                 # Robot is moving, reset stationary timer
@@ -690,8 +744,8 @@ class ExploreNavNode(Node):
         current_time = self.get_clock().now()
         goal_duration = (current_time - self.last_goal_send_time).nanoseconds / 1e9
         
-        # If goal has been active for more than 60 seconds
-        if goal_duration > 60:
+        # If goal has been active for more than GOAL_TIMEOUT seconds
+        if goal_duration > GOAL_TIMEOUT:
             self.get_logger().error(f"⏰ GOAL TIMEOUT! Goal has been active for {goal_duration:.1f} seconds")
             self.get_logger().error("🔍 DIAGNOSTIC: Goal may be unreachable or Nav2 is stuck")
             self.get_logger().error("🛠️ RECOVERY ACTIONS:")
@@ -702,7 +756,7 @@ class ExploreNavNode(Node):
             # Cancel the current goal
             self._cancel_current_goal()
             
-        elif goal_duration > 30:
+        elif goal_duration > GOAL_TIMEOUT / 2:
             self.get_logger().warn(f"⏰ Goal has been active for {goal_duration:.1f} seconds - monitoring...")
 
     def _cancel_current_goal(self):
@@ -787,7 +841,7 @@ class ExploreNavNode(Node):
                                 
                                 # Reject goals that are too close to the robot
                                 # Use recovery mode distance if in recovery mode
-                                min_distance = 0.4 if self.recovery_mode else self.min_goal_distance
+                                min_distance = RECOVERY_MODE_DISTANCE if self.recovery_mode else self.min_goal_distance
                                 if distance_from_robot < min_distance:
                                     self.get_logger().debug(f"Rejecting goal at ({candidate_x:.2f}, {candidate_y:.2f}) - too close ({distance_from_robot:.2f}m < {min_distance:.2f}m)")
                                     continue
@@ -956,9 +1010,9 @@ class ExploreNavNode(Node):
                     curr_status = status_names.get(event.current_status, f"UNKNOWN({event.current_status})")
                     
                     # Only log significant status changes
-                    if event.current_status in [3, 4, 5]:  # SUCCESS, FAILURE, CANCELLED
+                    if event.current_status in [BT_STATUS_SUCCESS, BT_STATUS_FAILURE, BT_STATUS_CANCELLED]:
                         self.get_logger().info(f"🌳 BT Node '{event.node_name}': {prev_status} → {curr_status}")
-                    elif event.current_status == 2:  # RUNNING
+                    elif event.current_status == BT_STATUS_RUNNING:
                         self.get_logger().debug(f"🌳 BT Node '{event.node_name}': {prev_status} → {curr_status}")
 
     def bt_status_callback(self, msg):
@@ -975,9 +1029,9 @@ class ExploreNavNode(Node):
         curr_status = status_names.get(msg.current_status, f"UNKNOWN({msg.current_status})")
         
         # Log significant status changes
-        if msg.current_status in [3, 4, 5]:  # SUCCESS, FAILURE, CANCELLED
+        if msg.current_status in [BT_STATUS_SUCCESS, BT_STATUS_FAILURE, BT_STATUS_CANCELLED]:
             self.get_logger().info(f"🌳 BT Status '{msg.node_name}': {prev_status} → {curr_status}")
-        elif msg.current_status == 2:  # RUNNING
+        elif msg.current_status == BT_STATUS_RUNNING:
             self.get_logger().debug(f"🌳 BT Status '{msg.node_name}': {prev_status} → {curr_status}")
 
     def _map_callback(self, msg):
@@ -1133,7 +1187,7 @@ class ExploreNavNode(Node):
                 self.get_logger().info(f"📊 Blacklist now contains {len(self.goal_blacklist)} failed locations")
                 
                 # Trigger recovery mode if multiple failures
-                if len(self.goal_blacklist) >= 3:
+                if len(self.goal_blacklist) >= RECOVERY_TRIGGER_COUNT:
                     self._trigger_recovery_mode()
         
         self.is_goal_active = False
