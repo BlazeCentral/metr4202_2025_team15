@@ -314,88 +314,110 @@ class ExploreNavNode(Node):
         
         return True
 
-    def _find_unknown_space_goals(self, frontiers):
-        """Find goals in unknown space when free space goals are unavailable."""
-        if not frontiers or self.robot_pose is None:
+    def _find_unknown_space_goals(self):
+        """Find goals in unknown space using cost-optimized radial search."""
+        if self.robot_pose is None or self.map_data is None:
             return []
         
-        ranked_goals = []
         map_info = self.map_data.info
         map_array = np.array(self.map_data.data).reshape((map_info.height, map_info.width))
         
-        for frontier in frontiers:
-            best_goal_candidate = None
-            
-            # Look for unknown space cells adjacent to frontier
-            for r_f, c_f in frontier:
-                # Check all 8 neighbors of the frontier cell
-                for dr in [-1, 0, 1]:
-                    for dc in [-1, 0, 1]:
-                        if dr == 0 and dc == 0:
-                            continue
-                        
-                        r_unknown, c_unknown = r_f + dr, c_f + dc
-                        
-                        # Check map bounds
-                        if 0 <= r_unknown < map_info.height and 0 <= c_unknown < map_info.width:
-                            # Must be unknown space (-1)
-                            if map_array[r_unknown, c_unknown] == -1:
-                                # Convert to world coordinates
-                                candidate_x = map_info.origin.position.x + (c_unknown + 0.5) * map_info.resolution
-                                candidate_y = map_info.origin.position.y + (r_unknown + 0.5) * map_info.resolution
-                                
-                                # Check blacklist
-                                is_blacklisted = False
-                                goal_key = (candidate_x, candidate_y)
-                                
-                                for bp in self.goal_blacklist:
-                                    dist = math.hypot(candidate_x - bp.x, candidate_y - bp.y)
-                                    if dist < self.blacklist_radius:
-                                        is_blacklisted = True
-                                        break
-                                
-                                if not is_blacklisted and goal_key in self.blacklist_timers:
-                                    current_time = self.get_clock().now()
-                                    time_since_blacklist = (current_time - self.blacklist_timers[goal_key]).nanoseconds / 1e9
-                                    if time_since_blacklist < 30:
-                                        is_blacklisted = True
-                                
-                                if is_blacklisted:
-                                    continue
-                                
-                                # Check distance constraints
-                                distance_from_robot = math.hypot(candidate_x - self.robot_pose.x, candidate_y - self.robot_pose.y)
-                                min_distance = 0.4 if self.recovery_mode else self.min_goal_distance
-                                
-                                if distance_from_robot < min_distance:
-                                    continue
-                                
-                                # Check safety constraints
-                                if not self._check_unknown_goal_safety(candidate_x, candidate_y):
-                                    continue
-                                
-                                # Score the unknown space goal
-                                size = len(frontier)
-                                obstacle_count = self._count_nearby_obstacles(candidate_x, candidate_y)
-                                
-                                # Boost score for unknown space goals (exploration priority)
-                                exploration_boost = 2.0  # Higher priority for unknown space
-                                distance_boost = distance_from_robot * 0.5 if self.recovery_mode else 0
-                                
-                                score = (SCORING_CLUSTER_SIZE_WEIGHT * size + 
-                                        SCORING_DISTANCE_WEIGHT * distance_from_robot + 
-                                        SCORING_OBSTACLE_WEIGHT * obstacle_count + 
-                                        exploration_boost + distance_boost)
-                                
-                                # Track best goal for this frontier
-                                if not best_goal_candidate or score > best_goal_candidate[0]:
-                                    best_goal_candidate = (score, candidate_x, candidate_y)
-            
-            # Add best goal for this frontier
-            if best_goal_candidate:
-                ranked_goals.append(best_goal_candidate)
+        # Define target radii
+        R1 = self.min_goal_distance  # 1.25m
+        R2 = 2.0  # 2.0m
+        search_radius = R2 + 0.1  # Search within R2 + 0.1m
         
-        return ranked_goals
+        # Convert robot position to map coordinates
+        robot_c = int((self.robot_pose.x - map_info.origin.position.x) / map_info.resolution)
+        robot_r = int((self.robot_pose.y - map_info.origin.position.y) / map_info.resolution)
+        
+        # Calculate search area in cells
+        search_radius_cells = int(search_radius / map_info.resolution)
+        
+        best_goal = None
+        best_cost = float('inf')
+        
+        # Radial candidate generation
+        for dr in range(-search_radius_cells, search_radius_cells + 1):
+            for dc in range(-search_radius_cells, search_radius_cells + 1):
+                # Calculate distance from robot
+                distance = math.sqrt(dr*dr + dc*dc) * map_info.resolution
+                
+                # Only consider candidates within search radius
+                if distance > search_radius:
+                    continue
+                
+                # Check if distance is within ±0.1m of R1 or R2
+                if not (abs(distance - R1) <= 0.1 or abs(distance - R2) <= 0.1):
+                    continue
+                
+                # Calculate candidate position
+                candidate_r = robot_r + dr
+                candidate_c = robot_c + dc
+                
+                # Check map bounds
+                if not (0 <= candidate_r < map_info.height and 0 <= candidate_c < map_info.width):
+                    continue
+                
+                # Must be unknown space (-1)
+                if map_array[candidate_r, candidate_c] != -1:
+                    continue
+                
+                # Convert to world coordinates
+                candidate_x = map_info.origin.position.x + (candidate_c + 0.5) * map_info.resolution
+                candidate_y = map_info.origin.position.y + (candidate_r + 0.5) * map_info.resolution
+                
+                # Check blacklist
+                is_blacklisted = False
+                goal_key = (candidate_x, candidate_y)
+                
+                for bp in self.goal_blacklist:
+                    dist = math.hypot(candidate_x - bp.x, candidate_y - bp.y)
+                    if dist < self.blacklist_radius:
+                        is_blacklisted = True
+                        break
+                
+                if not is_blacklisted and goal_key in self.blacklist_timers:
+                    current_time = self.get_clock().now()
+                    time_since_blacklist = (current_time - self.blacklist_timers[goal_key]).nanoseconds / 1e9
+                    if time_since_blacklist < 30:
+                        is_blacklisted = True
+                
+                if is_blacklisted:
+                    continue
+                
+                # Check wall distance
+                if not self._check_wall_distance(candidate_x, candidate_y):
+                    continue
+                
+                # Calculate path cost (lower is better)
+                if not self._validate_path_cost(self.robot_pose.x, self.robot_pose.y, candidate_x, candidate_y):
+                    continue
+                
+                # Use a simple cost metric based on distance for now
+                # In a full implementation, you'd use actual path planning cost
+                path_cost = distance
+                
+                # Select the goal with lowest cost
+                if path_cost < best_cost:
+                    best_cost = path_cost
+                    best_goal = (candidate_x, candidate_y)
+        
+        # Return single best goal with exploration boost
+        if best_goal:
+            best_x, best_y = best_goal
+            distance_from_robot = math.hypot(best_x - self.robot_pose.x, best_y - self.robot_pose.y)
+            obstacle_count = self._count_nearby_obstacles(best_x, best_y)
+            
+            # Apply exploration boost (+2.0) for unknown space goals
+            exploration_boost = 2.0
+            score = (SCORING_DISTANCE_WEIGHT * distance_from_robot + 
+                    SCORING_OBSTACLE_WEIGHT * obstacle_count + 
+                    exploration_boost)
+            
+            return [(score, best_x, best_y)]
+        
+        return []
 
     def _manage_blacklist_timers(self):
         """Manage blacklist timers and recovery mode."""
@@ -822,18 +844,48 @@ class ExploreNavNode(Node):
                 ranked_goals.append(best_goal_candidate)
 
 
-        # If no free space goals found, try unknown space goals
-        if not ranked_goals:
-            self.get_logger().warn("⚠️ No valid free space goals found, trying unknown space goals...")
-            ranked_goals = self._find_unknown_space_goals(frontiers)
-            
-            if not ranked_goals:
-                self.get_logger().warn("⚠️ No valid unknown space goals found either")
+        # Find unknown space goals using cost-optimized radial search
+        ranked_unknown_goals = self._find_unknown_space_goals()
+        
+        # Find best free space goal
+        BEST_FREE_GOAL = None
+        BEST_FREE_DISTANCE = float('inf')
+        if ranked_goals:
+            ranked_goals.sort(key=lambda x: x[0], reverse=True)
+            best_score, best_x, best_y = ranked_goals[0]
+            BEST_FREE_GOAL = (best_score, best_x, best_y)
+            BEST_FREE_DISTANCE = math.hypot(best_x - self.robot_pose.x, best_y - self.robot_pose.y)
+        
+        # Find best unknown space goal
+        BEST_UNKNOWN_GOAL = None
+        BEST_UNKNOWN_DISTANCE = float('inf')
+        if ranked_unknown_goals:
+            best_unknown_score, best_unknown_x, best_unknown_y = ranked_unknown_goals[0]
+            BEST_UNKNOWN_GOAL = (best_unknown_score, best_unknown_x, best_unknown_y)
+            BEST_UNKNOWN_DISTANCE = math.hypot(best_unknown_x - self.robot_pose.x, best_unknown_y - self.robot_pose.y)
+        
+        # Final selection logic
+        FINAL_GOAL = None
+        
+        # Priority Rule: Choose unknown goal if it's much closer, or if no free goal is found
+        if BEST_UNKNOWN_DISTANCE < (BEST_FREE_DISTANCE - 1.0) or BEST_FREE_DISTANCE == float('inf'):
+            if BEST_UNKNOWN_GOAL:
+                FINAL_GOAL = BEST_UNKNOWN_GOAL
+                self.get_logger().warn("🔍 Prioritizing deeper unknown-space goal based on proximity and cost-path.")
+        elif BEST_FREE_GOAL:
+            FINAL_GOAL = BEST_FREE_GOAL
+        else:
+            # Fallback to current behavior: If only unknown goals exist (even if distant)
+            if BEST_UNKNOWN_GOAL:
+                FINAL_GOAL = BEST_UNKNOWN_GOAL
+            else:
+                self.get_logger().warn("⚠️ No valid goals found")
                 return None
-
-        # --- 2.2.5 Return Best Goal ---
-        ranked_goals.sort(key=lambda x: x[0], reverse=True)
-        best_score, best_x, best_y = ranked_goals[0]
+        
+        if not FINAL_GOAL:
+            return None
+            
+        best_score, best_x, best_y = FINAL_GOAL
         
         goal_pose = PoseStamped()
         goal_pose.header.frame_id = 'map'
