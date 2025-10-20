@@ -15,14 +15,14 @@ from scipy.ndimage import convolve
 
 # filter constants and active filters
 SIZE_FILTER = True
-MIN_CLUSTER_SIZE = 5
+MIN_CLUSTER_SIZE = 5 # number of cells
 VALUE_RADIUS = 1.0  # radius for calculating a waypoints exploration value
 SIZE_WEIGHT = 3.0
-DIST_WEIGHT = -2.0
+DIST_WEIGHT = -2.0 # negative value prefers close waypoints
 ANGLE_WEIGHT = 5.0  
 
-EXTEND_DIST_THRES = 3.0
-EXTEND_DIST = 0.5
+EXTEND_DIST_THRES = 3.0  # dist from which waypoints begin to be extended
+EXTEND_DIST = 0.5  
 RETRACT_DIST = 0.0
 
 
@@ -45,19 +45,19 @@ class ExploreNavNode(Node):
         self.map_subscriber = self.create_subscription(OccupancyGrid, '/global_costmap/costmap', 
                                                        self.map_callback, map_qos_profile)
 
-        # frontier publisher
+        # frontier publisher for visualisation
         self.frontier_publisher = self.create_publisher(OccupancyGrid, '/frontiers', 10)
         self.frontier_point_publisher = self.create_publisher(Marker, '/frontier_points', 10)
 
         # Action client for Nav2
         self._nav2_action_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
 
-        # TF2 buffer and listener
+        # TF2 buffer and listener for robot pose updates
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self.create_timer(1.0, self.update_robot_pose)  # 1 Hz
-        self.create_timer(3.0, self.set_goal) # new goal periodically
+        self.create_timer(3.0, self.set_goal) # set new goal periodically
 
     def map_callback(self, msg):
         self.costmap = msg
@@ -71,7 +71,7 @@ class ExploreNavNode(Node):
         self.frontier_points = frontier_points
         markers = self.mark_points_viz(frontier_points, frontier_map.header) # markers
 
-        # publish
+        # publish (for visualisation only)
         self.frontier_publisher.publish(frontier_map)
         self.frontier_point_publisher.publish(markers)
 
@@ -82,20 +82,19 @@ class ExploreNavNode(Node):
             t = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
             self.robot_pose = (t.transform.translation.x, t.transform.translation.y)
 
-            # --- Added orientation extraction ---  # <<<
             q = t.transform.rotation
-            # convert quaternion → yaw (robot heading)
+            # convert quaternion to yaw
             siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
             cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
             yaw = math.atan2(siny_cosp, cosy_cosp)
-            self.robot_yaw = yaw  # store for later use  # <<<
+            self.robot_yaw = yaw  
 
             self.get_logger().info(
-                f"Robot position: x={self.robot_pose[0]:.2f}, y={self.robot_pose[1]:.2f}, yaw={math.degrees(yaw):.1f}°")  # <<<
+                f"Robot position: x={self.robot_pose[0]:.2f}, y={self.robot_pose[1]:.2f}, yaw={math.degrees(yaw):.1f}°") 
 
         except (LookupException, ConnectivityException, ExtrapolationException):
             self.robot_pose = None
-            self.robot_yaw = None  # <<<
+            self.robot_yaw = None 
 
     def find_frontiers(self, costmap_msg):
         width = costmap_msg.info.width
@@ -112,7 +111,7 @@ class ExploreNavNode(Node):
         # Count free cells adjacent to each unknown cell
         free_neighbors = convolve(free.astype(int), kernel, mode='constant', cval=0)
 
-        # Frontier = unknown cell with ≥1 free neighbor
+        # Frontier = unknown cell with at least 1 free neighbor
         frontier_mask = unknown & (free_neighbors > 0)
 
         frontier = np.zeros_like(data, dtype=np.int8)
@@ -205,7 +204,7 @@ class ExploreNavNode(Node):
         costmap = self.costmap  # Costmap
         points = self.frontier_points  # list of Point() s
         rx, ry = self.robot_pose 
-        ryaw = self.robot_yaw  # <<<
+        ryaw = self.robot_yaw  
 
         width = costmap.info.width
         height = costmap.info.height
@@ -236,19 +235,16 @@ class ExploreNavNode(Node):
             dy = pt.y - ry
             distance = math.hypot(dx, dy)
 
-            # --- Angular bias calculation ---  # <<<
+            #Angular bias: in front of robot within 90 deg
             goal_angle = math.atan2(dy, dx)
             angle_diff = abs((goal_angle - ryaw + math.pi) % (2 * math.pi) - math.pi)  # normalize to [-pi, pi]
             
-            # front-facing boost: within 45° = best, fade to 0 at 90°  # <<<
-            if angle_diff < math.radians(90):  # within 90° cone  # <<<
-                angle_bias = max(0.0, math.cos(angle_diff))  # smooth cosine falloff  # <<<
+            if angle_diff < math.radians(90):
+                angle_bias = max(0.0, math.cos(angle_diff)) 
             else:
-                angle_bias = 0.0  # behind robot  # <<<
+                angle_bias = 0.0  # behind robot
 
-            # ranking score (higher = better)
             score = SIZE_WEIGHT * unknown_count + DIST_WEIGHT * distance + ANGLE_WEIGHT * angle_bias  # <<<
-
             scored_points.append((score, pt))
 
         if not scored_points:
@@ -261,9 +257,8 @@ class ExploreNavNode(Node):
 
         best_point = scored_points[0][1]
 
-        # update current goal before returning  # <<<
-        self.current_goal = best_point  # <<<
-
+        self.current_goal = best_point
+        
         return best_point
 
 
@@ -292,7 +287,7 @@ class ExploreNavNode(Node):
         marker.type = Marker.SPHERE_LIST
         marker.action = Marker.ADD
         marker.pose.orientation.w = 1.0
-        marker.scale.x = 0.25  # sphere diameter (meters)
+        marker.scale.x = 0.25
         marker.scale.y = 0.25
         marker.scale.z = 0.25
         marker.color.r = 0.0
