@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
+#REFERENCE: https://github.com/Rishit-katiyar/ArUcoMarkerDetector/tree/main
 import rclpy
 from rclpy.node import Node
-from rclpy.time import Time
-from rclpy.duration import Duration
-
-from collections import deque, defaultdict
-from typing import Dict, Deque, Tuple
 import numpy as np
 import cv2
 from cv_bridge import CvBridge
+from collections import defaultdict
+import time
 
 from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import Pose, PoseStamped, PoseArray
@@ -18,123 +16,98 @@ from tf2_ros import TransformException
 from tf2_geometry_msgs import do_transform_pose
 import math
 
-# ==============================================================================
-# Configuration constants (hardcoded)
-# ------------------------------------------------------------------------------
-# These constants replace external YAML parameters so the node is self-contained.
-# Adjust these values here to tune behavior without needing parameter files.
-# ==============================================================================
-ARUCO_DICTIONARY_NAME = "DICT_6X6_250"   # Which OpenCV ArUco dictionary to use
-MARKER_SIZE_METERS = 0.10                 # Physical marker size (edge length) in meters
-REPROJ_ERROR_THRESHOLD_PX = 3.0           # Max allowed average reprojection error (pixels)
-SMOOTHING_WINDOW_SIZE = 5                 # Number of recent detections to average
-MIN_HITS_FOR_PUBLISH = 2                  # Minimum detections before publishing a target
-MAX_TRACK_AGE_SECONDS = 2.0               # Discard detections older than this window
+# Simple configuration
+ARUCO_DICTIONARY_NAME = "DICT_6X6_250"
+MARKER_SIZE_METERS = 0.10
+MIN_DETECTIONS_FOR_CONFIRMATION = 2  # Minimum detections to consider marker confirmed
 
 class ArucoDetectPublishNode(Node):
-    """
-    A ROS2 node to detect ArUco markers, estimate their pose, and publish them.
-    This version is refactored into a class to properly handle ROS2 parameters and lifecycle.
-    """
+    """Simplified ROS2 node to detect ArUco markers and publish their poses."""
 
     def __init__(self):
-        """Initializes the node, its parameters, and ROS interfaces."""
         super().__init__('aruco_detect_publish')
-
-        # --- 1. Hardcoded configuration (no YAML/parameters required) ---
-        dict_name = ARUCO_DICTIONARY_NAME
-        marker_size_m = MARKER_SIZE_METERS
-        self.reproj_px_max = REPROJ_ERROR_THRESHOLD_PX
-        window_N = SMOOTHING_WINDOW_SIZE
-        self.min_hits = MIN_HITS_FOR_PUBLISH
-        self.max_age_s = MAX_TRACK_AGE_SECONDS
-
-        self.get_logger().info(f"Using ArUco dictionary: {dict_name}, Marker size: {marker_size_m}m")
-
-        # --- 2. Initialize ROS and CV Components ---
+        
+        # Initialize components
         self.bridge = CvBridge()
-        self.camera_K = None  # Intrinsic matrix
-        self.camera_D = None  # Distortion coefficients
-        self.image_frame_id = "camera_rgb_optical_frame"
-
+        self.camera_K = None
+        self.camera_D = None
+        self.calibration_received = False
+        
+        # Marker tracking system - single source of truth
+        self.tracked_markers = {}  # {marker_id: {'pose': Pose, 'detection_count': int, 'last_seen': timestamp, 'confirmed': bool, 'pose_history': []}}
+        self.smoothing_factor = 0.3  # How much to weight new detections vs existing pose (0.0 = no change, 1.0 = full replacement)
+        
+        # TF for coordinate transforms
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-
-        # Publishers for the detected targets and their visualization
+        
+        # Publishers
         self.targets_pub = self.create_publisher(PoseArray, "/targets", 10)
         self.viz_pub = self.create_publisher(MarkerArray, "/targets_viz", 10)
-
-        # A dictionary to store recent detections for each marker ID for smoothing
-        self.tracks: Dict[int, Deque[Tuple[np.ndarray, float, Time]]] = defaultdict(lambda: deque(maxlen=window_N))
-
-        # Setup ArUco detector
-        self.aruco_dict = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, dict_name))
+        
+        # ArUco setup
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, ARUCO_DICTIONARY_NAME))
         self.aruco_params = cv2.aruco.DetectorParameters_create()
-
-        # Pre-compute the 3D coordinates of the marker corners in its own frame
-        half = marker_size_m / 2.0
+        
+        # Marker 3D points
+        half = MARKER_SIZE_METERS / 2.0
         self.obj_pts = np.array([
             [-half,  half, 0.0], [ half,  half, 0.0],
             [ half, -half, 0.0], [-half, -half, 0.0]
         ], dtype=np.float32)
-
-        # --- 3. Subscriptions ---
-        # These trigger the main logic of the node.
+        
+        # Subscriptions
         self.create_subscription(CameraInfo, "/camera/camera_info", self._on_camera_info, 10)
         self.create_subscription(Image, "/camera/image_raw", self._on_image, 10)
-        self.get_logger().info("✅ ArUco detector node is ready and waiting for camera data.")
+        self.get_logger().info("ArUco detector ready")
 
     def _on_camera_info(self, msg: CameraInfo):
-        """Callback to receive and store camera calibration parameters."""
-        if self.camera_K is None:
+        """Store camera calibration parameters."""
+        if not self.calibration_received:
             self.camera_K = np.array(msg.k, dtype=np.float64).reshape(3, 3)
             self.camera_D = np.array(msg.d, dtype=np.float64).reshape(-1,)
             self.image_frame_id = msg.header.frame_id
-            self.get_logger().info("Camera calibration received successfully.")
+            self.calibration_received = True
+            self.get_logger().info("Camera calibration received")
 
     def _on_image(self, msg: Image):
-        """Main callback to process each incoming camera image."""
-        if self.camera_K is None:
-            self.get_logger().warn("Waiting for camera calibration...", throttle_duration_sec=5)
+        """Process camera image and detect ArUco markers."""
+        if not self.calibration_received:
             return
 
-        stamp = Time.from_msg(msg.header.stamp)
-        cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        try:
+            cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        except Exception as e:
+            self.get_logger().error(f"Image conversion failed: {e}")
+            return
+            
+        # Convert to grayscale and detect markers
         gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
-
-        # Detect markers in the image
         corners, ids, _ = cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.aruco_params)
         
-        # If no markers are found, publish an empty array and exit
-        if ids is None or len(ids) == 0:
-            empty_pose_array = PoseArray()
-            empty_pose_array.header.stamp = msg.header.stamp
-            empty_pose_array.header.frame_id = "map"
-            self.targets_pub.publish(empty_pose_array)
+        if ids is None:
+            # No markers detected in current frame, but publish confirmed markers if any
+            self._publish_persistent_results(msg.header.stamp)
             return
 
-        ids = ids.flatten().tolist()
-        confident_ids = []
-
-        # Process each detected marker
-        for i, marker_id in enumerate(ids):
+        # Process detected markers
+        current_timestamp = time.time()
+        current_frame_detections = {}
+        
+        for i, marker_id in enumerate(ids.flatten()):
             image_pts = corners[i].reshape(-1, 2).astype(np.float32)
+            
+            # Estimate pose
+            ok, rvec, tvec = cv2.solvePnP(self.obj_pts, image_pts, self.camera_K, self.camera_D)
+            if not ok:
+                continue
 
-            # Estimate the pose of the marker relative to the camera
-            ok, rvec, tvec = cv2.solvePnP(self.obj_pts, image_pts, self.camera_K, self.camera_D, flags=cv2.SOLVEPNP_IPPE_SQUARE)
-            if not ok: continue
-
-            # Quality check: filter out detections with high reprojection error
-            proj, _ = cv2.projectPoints(self.obj_pts, rvec, tvec, self.camera_K, self.camera_D)
-            reproj_err = float(np.linalg.norm(proj.reshape(-1, 2) - image_pts, axis=1).mean())
-            if reproj_err > self.reproj_px_max: continue
-
-            # Convert rotation vector to a simplified yaw quaternion
+            # Convert to quaternion
             R, _ = cv2.Rodrigues(rvec)
             yaw = math.atan2(R[1, 0], R[0, 0])
             qz, qw = math.sin(yaw * 0.5), math.cos(yaw * 0.5)
 
-            # Create a PoseStamped message in the camera's frame
+            # Create pose in camera frame
             ps_cam = PoseStamped()
             ps_cam.header.stamp = msg.header.stamp
             ps_cam.header.frame_id = self.image_frame_id
@@ -144,78 +117,137 @@ class ArucoDetectPublishNode(Node):
             ps_cam.pose.orientation.z = qz
             ps_cam.pose.orientation.w = qw
             
-            # Transform the pose from the camera frame to the map frame
+            # Transform to map frame
             try:
-                transform = self.tf_buffer.lookup_transform("map", self.image_frame_id, stamp, timeout=Duration(seconds=0.2))
+                transform = self.tf_buffer.lookup_transform("map", self.image_frame_id, msg.header.stamp)
                 ps_map = do_transform_pose(ps_cam.pose, transform)
-
-                # Store the transformed pose for smoothing
-                px, py, pz = ps_map.position.x, ps_map.position.y, ps_map.position.z
-                qx, qy, qz, qw = ps_map.orientation.x, ps_map.orientation.y, ps_map.orientation.z, ps_map.orientation.w
-                yaw_map = math.atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
                 
-                self.tracks[marker_id].append((np.array([px, py, pz]), yaw_map, stamp))
-                confident_ids.append(marker_id)
-            except TransformException as e:
-                self.get_logger().debug(f"TF lookup failed from '{self.image_frame_id}' to 'map': {e}")
+                # Store current frame detection
+                current_frame_detections[marker_id] = {
+                    'pose': ps_map,
+                    'timestamp': current_timestamp
+                }
+                
+            except TransformException:
                 continue
 
-        # --- Build and Publish Smoothed Outputs ---
-        self._publish_smoothed_targets(msg.header.stamp)
+        # Update tracking system
+        self._update_marker_tracking(current_frame_detections, current_timestamp)
+        
+        # Publish all confirmed markers (persistent)
+        self._publish_persistent_results(msg.header.stamp)
 
-    def _publish_smoothed_targets(self, stamp):
-        """Filters, smooths, and publishes confident marker poses."""
+    def _update_marker_tracking(self, current_detections, timestamp):
+        """Update marker tracking system with current frame detections."""
+        # Process currently detected markers
+        for marker_id, detection_data in current_detections.items():
+            if marker_id in self.tracked_markers:
+                # Marker already exists - smooth pose update and increment count
+                old_pose = self.tracked_markers[marker_id]['pose']
+                new_pose = detection_data['pose']
+                
+                # Smooth pose update (weighted average)
+                smoothed_pose = self._smooth_pose(old_pose, new_pose)
+                
+                self.tracked_markers[marker_id]['pose'] = smoothed_pose
+                self.tracked_markers[marker_id]['detection_count'] += 1
+                self.tracked_markers[marker_id]['last_seen'] = timestamp
+                
+                # Check if marker should be confirmed (only log once)
+                if (not self.tracked_markers[marker_id]['confirmed'] and 
+                    self.tracked_markers[marker_id]['detection_count'] >= MIN_DETECTIONS_FOR_CONFIRMATION):
+                    self.tracked_markers[marker_id]['confirmed'] = True
+                    self.get_logger().info(f"Marker {marker_id} confirmed after {self.tracked_markers[marker_id]['detection_count']} detections")
+            else:
+                # First detection of this marker
+                self.tracked_markers[marker_id] = {
+                    'pose': detection_data['pose'],
+                    'detection_count': 1,
+                    'last_seen': timestamp,
+                    'confirmed': False
+                }
+                self.get_logger().info(f"New marker {marker_id} detected")
+        
+        # NEVER remove markers - they stay forever once detected!
+        # Only update poses and detection counts
+
+    def _smooth_pose(self, old_pose, new_pose):
+        """Smooth pose update using weighted average."""
+        smoothed = Pose()
+        
+        # Smooth position (weighted average)
+        smoothed.position.x = (1 - self.smoothing_factor) * old_pose.position.x + self.smoothing_factor * new_pose.position.x
+        smoothed.position.y = (1 - self.smoothing_factor) * old_pose.position.y + self.smoothing_factor * new_pose.position.y
+        smoothed.position.z = (1 - self.smoothing_factor) * old_pose.position.z + self.smoothing_factor * new_pose.position.z
+        
+        # Smooth orientation (simple average for quaternion components)
+        smoothed.orientation.x = (1 - self.smoothing_factor) * old_pose.orientation.x + self.smoothing_factor * new_pose.orientation.x
+        smoothed.orientation.y = (1 - self.smoothing_factor) * old_pose.orientation.y + self.smoothing_factor * new_pose.orientation.y
+        smoothed.orientation.z = (1 - self.smoothing_factor) * old_pose.orientation.z + self.smoothing_factor * new_pose.orientation.z
+        smoothed.orientation.w = (1 - self.smoothing_factor) * old_pose.orientation.w + self.smoothing_factor * new_pose.orientation.w
+        
+        return smoothed
+
+    def _publish_persistent_results(self, stamp):
+        """Publish all tracked markers persistently."""
+        if not self.tracked_markers:
+            # No tracked markers, publish empty results
+            self._publish_empty_results(stamp)
+            return
+        
+        # Create poses and markers for ALL tracked markers (both confirmed and unconfirmed)
+        poses = []
+        markers = []
+        
+        for marker_id, marker_data in self.tracked_markers.items():
+            poses.append(marker_data['pose'])
+            marker = self._create_visualization_marker(marker_id, marker_data['pose'], stamp)
+            markers.append(marker)
+        
+        # Publish results
+        self._publish_results(poses, markers, stamp)
+        
+        # Log status
+        confirmed_count = sum(1 for m in self.tracked_markers.values() if m['confirmed'])
+        self.get_logger().info(f"Published {len(poses)} ArUco targets ({confirmed_count} confirmed, {len(poses)-confirmed_count} unconfirmed)")
+        self.get_logger().debug(f"All tracked markers: {list(self.tracked_markers.keys())}")
+
+    def _publish_empty_results(self, stamp):
+        """Publish empty results when no markers detected."""
         pose_array = PoseArray()
         pose_array.header.stamp = stamp
         pose_array.header.frame_id = "map"
-        marker_array = MarkerArray()
-        marker_seq = 0
-        now = self.get_clock().now()
-
-        for marker_id in list(self.tracks.keys()):
-            buf = self.tracks[marker_id]
-            
-            # Prune old detections from the buffer
-            pruned = deque(maxlen=buf.maxlen)
-            for (xyz, yaw_m, detection_time) in buf:
-                if (now - detection_time).nanoseconds * 1e-9 < self.max_age_s:
-                    pruned.append((xyz, yaw_m, detection_time))
-            self.tracks[marker_id] = pruned
-            
-            # Check if the track is still confident enough to publish
-            if len(pruned) < self.min_hits:
-                continue
-
-            # Calculate the smoothed pose using a moving average
-            positions = np.array([e[0] for e in pruned])
-            yaws = np.array([e[1] for e in pruned])
-            pos_mean = positions.mean(axis=0)
-            # Average angles correctly using atan2 of mean sin/cos
-            yaw_mean = math.atan2(np.sin(yaws).mean(), np.cos(yaws).mean())
-
-            # Create the final smoothed Pose message
-            smoothed_pose = Pose()
-            smoothed_pose.position.x, smoothed_pose.position.y, smoothed_pose.position.z = float(pos_mean[0]), float(pos_mean[1]), float(pos_mean[2])
-            qz, qw = math.sin(yaw_mean * 0.5), math.cos(yaw_mean * 0.5)
-            smoothed_pose.orientation.z, smoothed_pose.orientation.w = qz, qw
-            pose_array.poses.append(smoothed_pose)
-
-            # Create a visualization marker for RViz
-            m = Marker()
-            m.header = pose_array.header
-            m.ns = "aruco_targets"
-            m.id = marker_id # Use marker ID for consistent visualization
-            m.type = Marker.ARROW
-            m.action = Marker.ADD
-            m.pose = smoothed_pose
-            m.scale.x, m.scale.y, m.scale.z = 0.2, 0.05, 0.05
-            m.color.r, m.color.g, m.color.a = 0.0, 1.0, 1.0
-            marker_array.markers.append(m)
-
         self.targets_pub.publish(pose_array)
-        if len(marker_array.markers) > 0:
+
+    def _create_visualization_marker(self, marker_id, pose, stamp):
+        """Create RViz visualization marker."""
+        marker = Marker()
+        marker.header.stamp = stamp
+        marker.header.frame_id = "map"
+        marker.ns = "aruco_targets"
+        marker.id = int(marker_id)
+        marker.type = Marker.ARROW
+        marker.action = Marker.ADD
+        marker.pose = pose
+        marker.scale.x, marker.scale.y, marker.scale.z = 0.2, 0.05, 0.05
+        marker.color.r, marker.color.g, marker.color.b, marker.color.a = 0.0, 1.0, 0.0, 1.0
+        return marker
+
+    def _publish_results(self, poses, markers, stamp):
+        """Publish detected poses and visualization markers."""
+        # Publish poses
+        pose_array = PoseArray()
+        pose_array.header.stamp = stamp
+        pose_array.header.frame_id = "map"
+        pose_array.poses = poses
+        self.targets_pub.publish(pose_array)
+        
+        # Publish visualization
+        if markers:
+            marker_array = MarkerArray()
+            marker_array.markers = markers
             self.viz_pub.publish(marker_array)
-            self.get_logger().info(f"Published {len(pose_array.poses)} smoothed ArUco targets.")
+            self.get_logger().info(f"Published {len(poses)} ArUco targets")
 
 
 def main(args=None):
