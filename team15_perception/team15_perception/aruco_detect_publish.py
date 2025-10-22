@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+
+#blaise version 2.1
+#Changes: Subscribe to raw camera info
+#         Publish debug image
+#         Simplified ArUco detection with ArUco.detectMarkers()
+#         Simplified pose estimation with ArUco.estimatePoseSingleMarkers()
+
+
+
 #REFERENCE: https://github.com/Rishit-katiyar/ArUcoMarkerDetector/tree/main
 import rclpy
 from rclpy.node import Node
@@ -44,17 +53,11 @@ class ArucoDetectPublishNode(Node):
         # Publishers
         self.targets_pub = self.create_publisher(PoseArray, "/targets", 10)
         self.viz_pub = self.create_publisher(MarkerArray, "/targets_viz", 10)
+        self.debug_pub = self.create_publisher(Image, "/camera/debug_image", 10)
         
-        # ArUco setup
+        # ArUco setup - simplified
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, ARUCO_DICTIONARY_NAME))
         self.aruco_params = cv2.aruco.DetectorParameters_create()
-        
-        # Marker 3D points
-        half = MARKER_SIZE_METERS / 2.0
-        self.obj_pts = np.array([
-            [-half,  half, 0.0], [ half,  half, 0.0],
-            [ half, -half, 0.0], [-half, -half, 0.0]
-        ], dtype=np.float32)
         
         # Subscriptions
         self.create_subscription(CameraInfo, "/camera/camera_info", self._on_camera_info, 10)
@@ -90,18 +93,22 @@ class ArucoDetectPublishNode(Node):
             self._publish_persistent_results(msg.header.stamp)
             return
 
+        # Use OpenCV's built-in pose estimation - much simpler!
+        rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, MARKER_SIZE_METERS, self.camera_K, self.camera_D)
+        
+        # Draw debug visualization
+        debug_img = self._draw_marker_debug(cv_img.copy(), corners, ids, rvecs, tvecs)
+        self._publish_debug_image(debug_img, msg.header.stamp)
+        
         # Process detected markers
         current_timestamp = time.time()
         current_frame_detections = {}
         
         for i, marker_id in enumerate(ids.flatten()):
-            image_pts = corners[i].reshape(-1, 2).astype(np.float32)
+            # Extract pose for this marker
+            rvec = rvecs[i]
+            tvec = tvecs[i]
             
-            # Estimate pose
-            ok, rvec, tvec = cv2.solvePnP(self.obj_pts, image_pts, self.camera_K, self.camera_D)
-            if not ok:
-                continue
-
             # Convert to quaternion
             R, _ = cv2.Rodrigues(rvec)
             yaw = math.atan2(R[1, 0], R[0, 0])
@@ -187,6 +194,51 @@ class ArucoDetectPublishNode(Node):
         smoothed.orientation.w = (1 - self.smoothing_factor) * old_pose.orientation.w + self.smoothing_factor * new_pose.orientation.w
         
         return smoothed
+
+    def _draw_marker_debug(self, img, corners, ids, rvecs, tvecs):
+        """Draw red squares around detected markers with ID numbers."""
+        if ids is None:
+            return img
+            
+        # Draw marker corners and IDs
+        cv2.aruco.drawDetectedMarkers(img, corners, ids)
+        
+        # Draw pose axes for each marker
+        for i in range(len(ids)):
+            cv2.drawFrameAxes(img, self.camera_K, self.camera_D, rvecs[i], tvecs[i], 0.05)
+            
+            # Draw red square around marker
+            marker_corners = corners[i][0].astype(int)
+            cv2.polylines(img, [marker_corners], True, (0, 0, 255), 3)  # Red square
+            
+            # Add marker ID text
+            marker_id = ids[i][0]
+            center_x = int(np.mean(marker_corners[:, 0]))
+            center_y = int(np.mean(marker_corners[:, 1]))
+            
+            # Draw white background for text
+            cv2.rectangle(img, (center_x-20, center_y-15), (center_x+20, center_y+5), (255, 255, 255), -1)
+            
+            # Draw marker ID
+            cv2.putText(img, f"ID:{marker_id}", (center_x-15, center_y+2), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+            
+            # Draw distance info
+            distance = np.linalg.norm(tvecs[i])
+            cv2.putText(img, f"d:{distance:.2f}m", (center_x-25, center_y+20), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+        
+        return img
+
+    def _publish_debug_image(self, debug_img, stamp):
+        """Publish debug image with marker annotations."""
+        try:
+            debug_msg = self.bridge.cv2_to_imgmsg(debug_img, encoding="bgr8")
+            debug_msg.header.stamp = stamp
+            debug_msg.header.frame_id = self.image_frame_id
+            self.debug_pub.publish(debug_msg)
+        except Exception as e:
+            self.get_logger().error(f"Debug image publishing failed: {e}")
 
     def _publish_persistent_results(self, stamp):
         """Publish all tracked markers persistently."""
