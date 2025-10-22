@@ -17,7 +17,7 @@ from cv_bridge import CvBridge
 from collections import defaultdict
 import time
 
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image, CameraInfo, CompressedImage
 from geometry_msgs.msg import Pose, PoseStamped, PoseArray
 from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
@@ -46,6 +46,10 @@ class ArucoDetectPublishNode(Node):
         self.tracked_markers = {}  # {marker_id: {'pose': Pose, 'detection_count': int, 'last_seen': timestamp, 'confirmed': bool, 'pose_history': []}}
         self.smoothing_factor = 0.3  # How much to weight new detections vs existing pose (0.0 = no change, 1.0 = full replacement)
         
+        # Status update system
+        self.first_aruco_found = False
+        self.last_status_time = time.time()
+        
         # TF for coordinate transforms
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -59,9 +63,9 @@ class ArucoDetectPublishNode(Node):
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, ARUCO_DICTIONARY_NAME))
         self.aruco_params = cv2.aruco.DetectorParameters_create()
         
-        # Subscriptions
-        self.create_subscription(CameraInfo, "/camera/camera_info", self._on_camera_info, 10)
-        self.create_subscription(Image, "/camera/image_raw", self._on_image, 10)
+        # Subscriptions - Updated for actual robot
+        self.create_subscription(CameraInfo, "/camera_info", self._on_camera_info, 10)
+        self.create_subscription(CompressedImage, "/image_raw/compressed", self._on_compressed_image, 10)
         self.get_logger().info("ArUco detector ready")
 
     def _on_camera_info(self, msg: CameraInfo):
@@ -73,8 +77,23 @@ class ArucoDetectPublishNode(Node):
             self.calibration_received = True
             self.get_logger().info("Camera calibration received")
 
+    def _on_compressed_image(self, msg: CompressedImage):
+        """Process compressed camera image and detect ArUco markers."""
+        if not self.calibration_received:
+            return
+
+        try:
+            # Convert compressed image to OpenCV format
+            cv_img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        except Exception as e:
+            self.get_logger().error(f"Compressed image conversion failed: {e}")
+            return
+            
+        # Process the image
+        self._process_image(cv_img, msg.header.stamp)
+
     def _on_image(self, msg: Image):
-        """Process camera image and detect ArUco markers."""
+        """Process regular camera image and detect ArUco markers."""
         if not self.calibration_received:
             return
 
@@ -84,21 +103,38 @@ class ArucoDetectPublishNode(Node):
             self.get_logger().error(f"Image conversion failed: {e}")
             return
             
+        # Process the image
+        self._process_image(cv_img, msg.header.stamp)
+
+    def _process_image(self, cv_img, stamp):
+        """Common image processing logic for both compressed and regular images."""
+        
+        # Check for status updates every 5 seconds
+        current_time = time.time()
+        if not self.first_aruco_found and (current_time - self.last_status_time) >= 5.0:
+            self.get_logger().info("No ArUco markers detected yet...")
+            self.last_status_time = current_time
+            
         # Convert to grayscale and detect markers
         gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
         corners, ids, _ = cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.aruco_params)
         
         if ids is None:
             # No markers detected in current frame, but publish confirmed markers if any
-            self._publish_persistent_results(msg.header.stamp)
+            self._publish_persistent_results(stamp)
             return
 
+        # Mark that we found our first ArUco marker
+        if not self.first_aruco_found:
+            self.first_aruco_found = True
+            self.get_logger().info("First ArUco marker detected! Status updates will stop.")
+        
         # Use OpenCV's built-in pose estimation - much simpler!
         rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, MARKER_SIZE_METERS, self.camera_K, self.camera_D)
         
         # Draw debug visualization
         debug_img = self._draw_marker_debug(cv_img.copy(), corners, ids, rvecs, tvecs)
-        self._publish_debug_image(debug_img, msg.header.stamp)
+        self._publish_debug_image(debug_img, stamp)
         
         # Process detected markers
         current_timestamp = time.time()
@@ -116,7 +152,7 @@ class ArucoDetectPublishNode(Node):
 
             # Create pose in camera frame
             ps_cam = PoseStamped()
-            ps_cam.header.stamp = msg.header.stamp
+            ps_cam.header.stamp = stamp
             ps_cam.header.frame_id = self.image_frame_id
             ps_cam.pose.position.x = float(tvec[0])
             ps_cam.pose.position.y = float(tvec[1])
@@ -126,7 +162,7 @@ class ArucoDetectPublishNode(Node):
             
             # Transform to map frame
             try:
-                transform = self.tf_buffer.lookup_transform("map", self.image_frame_id, msg.header.stamp)
+                transform = self.tf_buffer.lookup_transform("map", self.image_frame_id, stamp)
                 ps_map = do_transform_pose(ps_cam.pose, transform)
                 
                 # Store current frame detection
@@ -142,7 +178,7 @@ class ArucoDetectPublishNode(Node):
         self._update_marker_tracking(current_frame_detections, current_timestamp)
         
         # Publish all confirmed markers (persistent)
-        self._publish_persistent_results(msg.header.stamp)
+        self._publish_persistent_results(stamp)
 
     def _update_marker_tracking(self, current_detections, timestamp):
         """Update marker tracking system with current frame detections."""
@@ -316,4 +352,6 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+
+
 
