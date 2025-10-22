@@ -83,8 +83,13 @@ class ArucoDetectPublishNode(Node):
             return
 
         try:
-            # Convert compressed image to OpenCV format
-            cv_img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            # Convert compressed image to OpenCV format using numpy
+            import numpy as np
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            cv_img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            if cv_img is None:
+                self.get_logger().error("Failed to decode compressed image")
+                return
         except Exception as e:
             self.get_logger().error(f"Compressed image conversion failed: {e}")
             return
@@ -352,6 +357,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-
-
 
