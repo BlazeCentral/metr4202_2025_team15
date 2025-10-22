@@ -61,7 +61,7 @@ class ArucoDetectPublishNode(Node):
         
         # ArUco setup - simplified
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, ARUCO_DICTIONARY_NAME))
-        self.aruco_params = cv2.aruco.DetectorParameters()
+        self.aruco_params = cv2.aruco.DetectorParameters_create()
         
         # Subscriptions - Updated for actual robot
         self.create_subscription(CameraInfo, "/camera_info", self._on_camera_info, 10)
@@ -74,8 +74,14 @@ class ArucoDetectPublishNode(Node):
             self.camera_K = np.array(msg.k, dtype=np.float64).reshape(3, 3)
             self.camera_D = np.array(msg.d, dtype=np.float64).reshape(-1,)
             self.image_frame_id = msg.header.frame_id
+            
+            # Check if frame_id is valid
+            if not self.image_frame_id or self.image_frame_id == "":
+                self.image_frame_id = "camera_rgb_optical_frame"  # Default frame
+                self.get_logger().warn("Empty frame_id, using default: camera_rgb_optical_frame")
+            
             self.calibration_received = True
-            self.get_logger().info("Camera calibration received")
+            self.get_logger().info(f"Camera calibration received, frame_id: {self.image_frame_id}")
 
     def _on_compressed_image(self, msg: CompressedImage):
         """Process compressed camera image and detect ArUco markers."""
@@ -114,11 +120,8 @@ class ArucoDetectPublishNode(Node):
     def _process_image(self, cv_img, stamp):
         """Common image processing logic for both compressed and regular images."""
         
-        # Check TF availability
-        try:
-            self.tf_buffer.lookup_transform("map", self.image_frame_id, stamp, timeout=rclpy.duration.Duration(seconds=0.1))
-        except (TransformException, LookupException, ConnectivityException, ExtrapolationException):
-            self.get_logger().warn("No TF data available - transforms will fail")
+        # Check TF availability and diagnose available frames
+        self._diagnose_tf_tree(stamp)
         
         # Check for status updates every 5 seconds
         current_time = time.time()
@@ -146,7 +149,7 @@ class ArucoDetectPublishNode(Node):
         # Draw debug visualization
         debug_img = self._draw_marker_debug(cv_img.copy(), corners, ids, rvecs, tvecs)
         self._publish_debug_image(debug_img, stamp)
-        
+
         # Process detected markers
         current_timestamp = time.time()
         current_frame_detections = {}
@@ -159,7 +162,7 @@ class ArucoDetectPublishNode(Node):
             except (IndexError, AttributeError) as e:
                 self.get_logger().error(f"Error extracting pose for marker {i}: {e}")
                 continue
-            
+
             # Convert to quaternion
             R, _ = cv2.Rodrigues(rvec)
             yaw = math.atan2(R[1, 0], R[0, 0])
@@ -175,23 +178,60 @@ class ArucoDetectPublishNode(Node):
             ps_cam.pose.orientation.z = qz
             ps_cam.pose.orientation.w = qw
             
-            # Transform to map frame
-            try:
-                self.get_logger().info(f"Looking up transform from {self.image_frame_id} to map")
-                transform = self.tf_buffer.lookup_transform("map", self.image_frame_id, stamp)
-                self.get_logger().info("Transform found successfully")
+            # Transform to map frame with multiple fallback options
+            transform_success = False
+            ps_map = None
+            
+            # Try multiple transform options in order of preference
+            transform_options = [
+                ("map", self.image_frame_id),
+                ("base_link", self.image_frame_id),
+                ("base_footprint", self.image_frame_id),
+                ("odom", self.image_frame_id),
+                ("map", "base_link"),
+                ("base_link", "base_footprint")
+            ]
+            
+            for target_frame, source_frame in transform_options:
+                try:
+                    self.get_logger().info(f"Trying transform from {source_frame} to {target_frame}")
+                    transform = self.tf_buffer.lookup_transform(target_frame, source_frame, stamp, timeout=rclpy.duration.Duration(seconds=0.5))
+                    
+                    if source_frame == self.image_frame_id:
+                        # Direct transform from camera
                 ps_map = do_transform_pose(ps_cam.pose, transform)
-                
+                    else:
+                        # Transform through intermediate frame
+                        # First: camera -> intermediate
+                        transform1 = self.tf_buffer.lookup_transform(source_frame, self.image_frame_id, stamp, timeout=rclpy.duration.Duration(seconds=0.5))
+                        ps_intermediate = do_transform_pose(ps_cam.pose, transform1)
+                        # Second: intermediate -> target
+                        ps_map = do_transform_pose(ps_intermediate, transform)
+                    
+                    self.get_logger().info(f"Transform successful: {source_frame} -> {target_frame}")
+                    transform_success = True
+                    break
+                    
+                except (TransformException, LookupException, ConnectivityException, ExtrapolationException) as e:
+                    self.get_logger().debug(f"Transform failed {source_frame} -> {target_frame}: {e}")
+                    continue
+            
+            if transform_success and ps_map is not None:
                 # Store current frame detection
                 current_frame_detections[marker_id] = {
                     'pose': ps_map,
                     'timestamp': current_timestamp
                 }
                 self.get_logger().info(f"Successfully processed marker {marker_id}")
-                
-            except TransformException as e:
-                self.get_logger().warn(f"Transform failed for marker {marker_id}: {e}")
-                continue
+            else:
+                # Last resort: use camera frame directly (no transform)
+                self.get_logger().warn(f"All transforms failed for marker {marker_id}, using camera frame directly")
+                ps_cam.header.frame_id = "camera_frame"  # Change frame_id to indicate no transform
+                current_frame_detections[marker_id] = {
+                    'pose': ps_cam.pose,
+                    'timestamp': current_timestamp
+                }
+                self.get_logger().info(f"Using camera frame directly for marker {marker_id}")
 
         # Update tracking system
         self.get_logger().info(f"Updating tracking system with {len(current_frame_detections)} detections")
@@ -235,6 +275,36 @@ class ArucoDetectPublishNode(Node):
         
         # NEVER remove markers - they stay forever once detected!
         # Only update poses and detection counts
+
+    def _diagnose_tf_tree(self, stamp):
+        """Diagnose available TF frames and their connectivity."""
+        # Only run this diagnostic occasionally to avoid spam
+        if not hasattr(self, '_last_tf_diagnostic') or (time.time() - self._last_tf_diagnostic) > 10.0:
+            self._last_tf_diagnostic = time.time()
+            
+            # Test common frame combinations
+            test_frames = ["map", "odom", "base_link", "base_footprint", "camera_link", "camera_rgb_optical_frame"]
+            available_frames = []
+            
+            for frame in test_frames:
+                try:
+                    # Try to get transform from this frame to itself (tests if frame exists)
+                    self.tf_buffer.lookup_transform(frame, frame, stamp, timeout=rclpy.duration.Duration(seconds=0.1))
+                    available_frames.append(frame)
+                except:
+                    pass
+            
+            self.get_logger().info(f"Available TF frames: {available_frames}")
+            
+            # Test specific transforms
+            if self.image_frame_id in available_frames:
+                for target in ["map", "base_link", "odom"]:
+                    if target in available_frames:
+                        try:
+                            self.tf_buffer.lookup_transform(target, self.image_frame_id, stamp, timeout=rclpy.duration.Duration(seconds=0.1))
+                            self.get_logger().info(f"✓ Transform available: {self.image_frame_id} -> {target}")
+                        except:
+                            self.get_logger().warn(f"✗ Transform failed: {self.image_frame_id} -> {target}")
 
     def _smooth_pose(self, old_pose, new_pose):
         """Smooth pose update using weighted average."""
@@ -313,7 +383,7 @@ class ArucoDetectPublishNode(Node):
             poses.append(marker_data['pose'])
             marker = self._create_visualization_marker(marker_id, marker_data['pose'], stamp)
             markers.append(marker)
-        
+
         # Publish results
         self._publish_results(poses, markers, stamp)
         
