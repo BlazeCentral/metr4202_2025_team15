@@ -21,7 +21,7 @@ from sensor_msgs.msg import Image, CameraInfo, CompressedImage
 from geometry_msgs.msg import Pose, PoseStamped, PoseArray
 from visualization_msgs.msg import Marker, MarkerArray
 import tf2_ros
-from tf2_ros import TransformException
+from tf2_ros import TransformException, LookupException, ConnectivityException, ExtrapolationException
 from tf2_geometry_msgs import do_transform_pose
 import math
 
@@ -61,7 +61,7 @@ class ArucoDetectPublishNode(Node):
         
         # ArUco setup - simplified
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, ARUCO_DICTIONARY_NAME))
-        self.aruco_params = cv2.aruco.DetectorParameters_create()
+        self.aruco_params = cv2.aruco.DetectorParameters()
         
         # Subscriptions - Updated for actual robot
         self.create_subscription(CameraInfo, "/camera_info", self._on_camera_info, 10)
@@ -114,6 +114,12 @@ class ArucoDetectPublishNode(Node):
     def _process_image(self, cv_img, stamp):
         """Common image processing logic for both compressed and regular images."""
         
+        # Check TF availability
+        try:
+            self.tf_buffer.lookup_transform("map", self.image_frame_id, stamp, timeout=rclpy.duration.Duration(seconds=0.1))
+        except (TransformException, LookupException, ConnectivityException, ExtrapolationException):
+            self.get_logger().warn("No TF data available - transforms will fail")
+        
         # Check for status updates every 5 seconds
         current_time = time.time()
         if not self.first_aruco_found and (current_time - self.last_status_time) >= 5.0:
@@ -146,9 +152,13 @@ class ArucoDetectPublishNode(Node):
         current_frame_detections = {}
         
         for i, marker_id in enumerate(ids.flatten()):
-            # Extract pose for this marker
-            rvec = rvecs[i]
-            tvec = tvecs[i]
+            # Extract pose for this marker - handle array shape correctly
+            try:
+                rvec = rvecs[i].flatten()
+                tvec = tvecs[i].flatten()
+            except (IndexError, AttributeError) as e:
+                self.get_logger().error(f"Error extracting pose for marker {i}: {e}")
+                continue
             
             # Convert to quaternion
             R, _ = cv2.Rodrigues(rvec)
@@ -167,7 +177,9 @@ class ArucoDetectPublishNode(Node):
             
             # Transform to map frame
             try:
+                self.get_logger().info(f"Looking up transform from {self.image_frame_id} to map")
                 transform = self.tf_buffer.lookup_transform("map", self.image_frame_id, stamp)
+                self.get_logger().info("Transform found successfully")
                 ps_map = do_transform_pose(ps_cam.pose, transform)
                 
                 # Store current frame detection
@@ -175,18 +187,23 @@ class ArucoDetectPublishNode(Node):
                     'pose': ps_map,
                     'timestamp': current_timestamp
                 }
+                self.get_logger().info(f"Successfully processed marker {marker_id}")
                 
-            except TransformException:
+            except TransformException as e:
+                self.get_logger().warn(f"Transform failed for marker {marker_id}: {e}")
                 continue
 
         # Update tracking system
+        self.get_logger().info(f"Updating tracking system with {len(current_frame_detections)} detections")
         self._update_marker_tracking(current_frame_detections, current_timestamp)
         
         # Publish all confirmed markers (persistent)
+        self.get_logger().info("About to publish persistent results")
         self._publish_persistent_results(stamp)
 
     def _update_marker_tracking(self, current_detections, timestamp):
         """Update marker tracking system with current frame detections."""
+        self.get_logger().info(f"Processing {len(current_detections)} current detections")
         # Process currently detected markers
         for marker_id, detection_data in current_detections.items():
             if marker_id in self.tracked_markers:
