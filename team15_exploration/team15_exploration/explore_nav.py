@@ -15,13 +15,13 @@ from scipy.ndimage import convolve
 
 # filter constants and active filters
 SIZE_FILTER = True
-MIN_CLUSTER_SIZE = 5 # number of cells
+MIN_CLUSTER_SIZE = 3 # number of cells
 VALUE_RADIUS = 1.0  # radius for calculating a waypoints exploration value
 SIZE_WEIGHT = 3.0
-DIST_WEIGHT = -2.0 # negative value prefers close waypoints
-ANGLE_WEIGHT = 5.0  
+DIST_WEIGHT = -5.0 # negative value prefers close waypoints
+ANGLE_WEIGHT = 6.0  
 
-EXTEND_DIST_THRES = 3.0  # dist from which waypoints begin to be extended
+EXTEND_DIST_THRES = 1.5  # dist from which waypoints begin to be extended
 EXTEND_DIST = 0.5  
 RETRACT_DIST = 0.0
 
@@ -57,7 +57,7 @@ class ExploreNavNode(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self.create_timer(1.0, self.update_robot_pose)  # 1 Hz
-        self.create_timer(3.0, self.set_goal) # set new goal periodically
+        self.create_timer(2.5, self.set_goal) # set new goal periodically
 
     def map_callback(self, msg):
         self.costmap = msg
@@ -103,7 +103,7 @@ class ExploreNavNode(Node):
 
         # Binary masks
         unknown = (data == -1)
-        free = (data >= 0) & (data < 60)  # traversable area
+        free = (data >= 0) & (data < 75)  # traversable area
 
         # 8-connected neighborhood kernel
         kernel = np.ones((3, 3), dtype=int)
