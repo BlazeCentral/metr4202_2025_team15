@@ -199,7 +199,7 @@ class ArucoDetectPublishNode(Node):
                     
                     if source_frame == self.image_frame_id:
                         # Direct transform from camera
-                ps_map = do_transform_pose(ps_cam.pose, transform)
+                        ps_map = do_transform_pose(ps_cam.pose, transform)
                     else:
                         # Transform through intermediate frame
                         # First: camera -> intermediate
