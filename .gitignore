@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# temporary / build directories
+install/
+log/
+redundant/
+feedback/
