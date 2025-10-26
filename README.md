@@ -6,18 +6,20 @@ This repository contains the software packages for autonomous exploration and Ar
 
 ### 1.1. Repository Structure
 
-* **team15_exploration:** Contains the `explore_nav.py` node for frontier selection and Nav2 goal setting.
+#### team15_exploration:
+** Contains the `explore_nav.py` node for frontier selection and Nav2 goal setting.
 
-* **team15_perception:** Contains the `aruco_detect_publish.py` node for ArUco detection and pose smoothing.
+#### team15_perception:
+** Contains the `aruco_detect_publish.py` node for ArUco detection and pose smoothing.
 
 
   
-# 1.2 Branch Structure
+### 1.2 Branch Structure
 This repository uses two primary branches:
 
-simulation: Contains configurations, launch files, and parameters optimized for the Gazebo environment and simulated time (use_sim_time:=True).
+#### simulation: Contains configurations, launch files, and parameters optimized for the Gazebo environment and simulated time (use_sim_time:=True).
 
-hardware: Contains configurations, launch files, and parameters tailored for the physical TurtleBot3 robot, including real-time settings (use_sim_time:=False) and hardware driver dependencies.
+#### hardware: Contains configurations, launch files, and parameters tailored for the physical TurtleBot3 robot, including real-time settings (use_sim_time:=False) and hardware driver dependencies.
 
 Additionally, the main branch mimics the hardware branch code. It contains our final report and README.md.
 
