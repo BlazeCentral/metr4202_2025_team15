@@ -12,6 +12,7 @@ Contains the `explore_nav.py` node for frontier selection and Nav2 goal setting.
 #### team15_perception:
 Contains the `aruco_detect_publish.py` node for ArUco detection and pose smoothing.
 
+<img width="1156" height="501" alt="METR4202IO drawio" src="https://github.com/user-attachments/assets/ab3e5afc-3aa5-4382-a3cb-5f96c92a8cdd" />
 
   
 ## 1.2 Branch Structure
