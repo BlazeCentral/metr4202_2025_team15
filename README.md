@@ -4,7 +4,7 @@ This repository contains the software packages for autonomous exploration and Ar
 
 # 1. Overview of System
 
-### 1.1. Repository Structure
+## 1.1. Repository Structure
 
 #### team15_exploration:
 Contains the `explore_nav.py` node for frontier selection and Nav2 goal setting.
@@ -14,7 +14,7 @@ Contains the `aruco_detect_publish.py` node for ArUco detection and pose smoothi
 
 
   
-### 1.2 Branch Structure
+## 1.2 Branch Structure
 This repository uses two primary branches plus main:
 
 #### simulation:
