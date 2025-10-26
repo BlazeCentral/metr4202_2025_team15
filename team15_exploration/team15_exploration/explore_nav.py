@@ -28,8 +28,6 @@ RETRACT_DIST = 0.0
 
 
 # --- STUCK / RECOVERY TUNING ---
-# --- STUCK / RECOVERY TUNING ---
-# --- STUCK / RECOVERY TUNING ---
 STUCK_WINDOW_SEC = 10        # look-back window for displacement (s)
 STUCK_MIN_DISP  = 0.30         # m; below this over window => "stuck"
 RECOVERY_COOLDOWN_SEC = 15.0   # min time between nudges (s)
@@ -38,12 +36,14 @@ RECOVERY_MAX_R  = 4.3          # m, max radius for recovery goal
 RECOVERY_OPEN_PATCH = 2        # half-size (cells) of free patch check (=> (2k+1)^2)
 FREE_MAX_COST = 60             # treat < 40 as free/safe in costmap
 
-# --- STUCK / RECOVERY TUNING ---
-# --- STUCK / RECOVERY TUNING ---
-# --- STUCK / RECOVERY TUNING ---
 
 
 class ExploreNavNode(Node):
+    '''
+    This node handles map processing to identify frontiers, 
+    grouping frontiers into a list of candidate waypoints, 
+    and decision making on next goal waypoint.
+    '''
     def __init__(self):
         super().__init__('explore_nav')
 
@@ -56,7 +56,7 @@ class ExploreNavNode(Node):
         self.no_frontier_counter = 0
         self.max_no_frontier_attempts = 10  # stop after 10 tries
 
-                # --- STUCK/RECOVERY STATE ---
+         # --- STUCK/RECOVERY STATE ---
         self.pose_history = deque(maxlen=600)  # (t_sec, x, y)
         self.last_recovery_sec = -1e9          # so first nudge is allowed
         # Periodic stuck check
@@ -85,6 +85,10 @@ class ExploreNavNode(Node):
         self.create_timer(3.0, self.set_goal) # set new goal periodically
 
     def map_callback(self, msg):
+        '''
+        Retrieves a global costmap via the /global_costmap/costmap topic.
+        Calls the required processing functions to find, group, and publish frontiers.
+        '''
         self.costmap = msg
 
         # compute frontiers
@@ -122,6 +126,9 @@ class ExploreNavNode(Node):
 
 
     def update_robot_pose(self):
+         '''
+        Performs tf operations to determine robot pose. Asynchronous, updates every second.
+        '''
         try:
             t = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
             self.robot_pose = (t.transform.translation.x, t.transform.translation.y)
@@ -268,6 +275,11 @@ class ExploreNavNode(Node):
         return True
             
     def find_frontiers(self, costmap_msg):
+        '''
+        Performs convolution to locate frontier boundaries. 
+        Publishes to /frontiers topic to enable visualisation.
+        Returns list for use in CostMap.data object.
+        '''
         width = costmap_msg.info.width
         height = costmap_msg.info.height
         data = np.array(costmap_msg.data, dtype=np.int8).reshape((height, width))
@@ -292,6 +304,13 @@ class ExploreNavNode(Node):
 
 
     def find_frontier_points(self, frontier_map):
+         '''
+        Groups frontiers using BFS. Frontier cells touching are considered to be connected nodes, 
+        search is finished when no more connected nodes.
+        Includes filtering small / noisy frontiers.
+        Points are considered midpoint of list of points.
+        Returns list of midpoints indicating candidate waypoints.
+        '''
         width = frontier_map.info.width
         height = frontier_map.info.height
         resolution = frontier_map.info.resolution
@@ -369,6 +388,11 @@ class ExploreNavNode(Node):
 
 
     def select_goal(self):
+        '''
+        Considers a list of candidate waypoints to determine the ideal target. 
+        Accounts for proximity, direction and exploration value. 
+        Returns goal point.
+        '''
         if not self.frontier_points or self.robot_pose is None or self.costmap is None or self.robot_yaw is None:  # <<<
             return None
         
@@ -434,6 +458,9 @@ class ExploreNavNode(Node):
 
 
     def set_goal(self):
+        '''
+        Sends selected goal to nav2 stack.
+        '''
         goal_pos = self.select_goal()
         if goal_pos:
             goal = PoseStamped()
@@ -450,6 +477,9 @@ class ExploreNavNode(Node):
 
 
     def mark_points_viz(self, points, header):
+         '''
+        Visualises waypoint candidates in RVIz using markers.
+        '''
         # Create Marker for RViz
         marker = Marker()
         marker.header = header
