@@ -28,6 +28,8 @@
 
 -----
 
+# SIMULATION SETUP
+
 ## 2. One-time Setup (per terminal)
 
 Add these lines to your `~/.bashrc` (recommended), or run in each new terminal:
@@ -68,6 +70,13 @@ ros2 launch turtlebot3_navigation2 navigation2.launch.py \
 ros2 run team15_exploration explore_nav
 ```
 
+
+### Terminal 4 — Our Aruco node
+```bash
+ros2 run team15_perception aruco_detect_publish
+```
+
+-----
 -----
 
 ## 4. Running Modes
@@ -130,6 +139,64 @@ ros2 launch gazebo_ros empty_world.launch.py \
   world:=/home/blaise/metr4202_ws/src/metr4202_2025_team15/worlds/<your_world>.world
 ```
 
+# HARDWARE SETUP
+
+# TERM1 - ON TURTLEBOT
+
+ ssh ubuntu@192.168.8.ID_NUMBER
+  ros2 launch turtlebot3_bringup robot.launch.py
+# TERM2 - Camera 
+Export TURTLEBOT: export TURTLEBOT3_MODEL=waffle_pi
+ROS2 Run Camera node: Ros2 run v4l2_camera v4l2_camera_node (l not 1)
+
+
+# TERM3 - NAV2/RVIS
+CHANGE BASH FILE
+Open Bash: vim ~/.bashrc
+
+Change the ROSID in bashrc: ROS Domain ID = {ROBOT_ID}
+
+Source Bashrc (in the ~): source ~/.bashrc 
+
+Echo the number to check its correct: echo $ROS_DOMAIN_ID
+
+
+Start up robot nav2: ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=False slam:=True
+
+cHECK topics in new terminal
+Check topics:ros2 topic list (in new terminal)
+
+
+After a wait, add in the targets/targets_viz topics onto the rViz 
+ALSO ADD THE FRONTIER TOPIC?
+
+ # TERM4 - ARUCO DETECTIOn NODE
+ 
+
+
+IF NOT ALREADY INSTALLED/ ON CORRECT VERSION 
+Check NUMPY: 1.21.5 and 1.8.0:
+pip3 install scipy
+Python3 -m pip install –upgrade –force-reinstall “numpy==1.21.5” “scipy==1.8.0”
+
+THEN GIT CLONE AND BUILD
+cd metr4202_ws/src
+export TURTLEBOT3_MODEL=waffle_pi
+source 
+git clone https://github.com/BlazeCentral/metr4202_2025_team15.git
+source install/bash
+colcon build
+
+
+LAUNCH IT 
+ros2 run team15_perception aruco_detect_publish
+
+
+ # TERM5- EXPLORATION NODE
+
+cd metr4202_ws/src
+export TURTLEBOT3_MODEL=waffle_pi
+ros2 run team15_exploration explore_nav
 
 -----
 
