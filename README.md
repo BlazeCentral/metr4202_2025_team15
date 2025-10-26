@@ -2,7 +2,7 @@
 
 This repository contains the software packages for autonomous exploration and ArUco marker perception on the TurtleBot3 Waffle Pi platform (ROS 2 Humble).
 
-## 1. Overview of System
+# 1. Overview of System
 
 ### 1.1. Repository Structure
 
@@ -15,7 +15,7 @@ Contains the `aruco_detect_publish.py` node for ArUco detection and pose smoothi
 
   
 ### 1.2 Branch Structure
-This repository uses two primary branches:
+This repository uses two primary branches plus main:
 
 #### simulation:
 Contains configurations, launch files, and parameters optimized for the Gazebo environment and simulated time (use_sim_time:=True).
@@ -23,12 +23,12 @@ Contains configurations, launch files, and parameters optimized for the Gazebo e
 #### hardware: 
 Contains configurations, launch files, and parameters tailored for the physical TurtleBot3 robot, including real-time settings (use_sim_time:=False) and hardware driver dependencies.
 
-
+#### main
 Additionally, the main branch mimics the hardware branch code. It contains our final report and README.md.
 
-## 2. Install and Setup Instruction
+# 2. Install and Setup Instruction
 
-### 2.0. One-time Setup and Building
+## 2.0. One-time Setup and Building
 
 #### Initial Installation (Cloning)
 
@@ -55,10 +55,10 @@ After cloning, or whenever code changes are made, rebuild the packages:
 ```bash
 
 cd ~/metr4202_ws
-colcon build --packages-select team15_exploration team15_perception
+colcon build
 ```
-
-### 2.1. Simulation Setup
+---
+## 2.1. Simulation Setup
 #### Terminal 1 — Gazebo and SLAM/Navigation
 Launches the simulated robot and the combined SLAM and Nav2 stack.
 
@@ -106,6 +106,7 @@ ros2 run team15_exploration explore_nav
 
 
 ## 2.2. Hardware Setup
+
 ### Pre-Launch Configuration (Workstation)
 Set ROS Domain ID: Update your ~/.bashrc to match the robot's ID.
 
