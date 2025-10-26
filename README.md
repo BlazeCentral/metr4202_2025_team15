@@ -195,5 +195,5 @@ The repository of provided aruco course resources was also used to help with dev
 A combination of Cursor AI, ChatGPT and Gemini was used to develop much of the foundations of the code. Pseudocode and flow charts where inserted into the chats in order to intelligently develop out ideas into working prototype code which were adjusted and customised for the robot based on our needs and performance. The code was finalised with human hands especially the weightings and specific parameters, and the heuristic scoring code.
 
 # Documents
-Pracs 1-5 and the provided
+Pracs 1-5 and Assessment Documentation
 
