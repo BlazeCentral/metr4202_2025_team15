@@ -44,28 +44,31 @@ Navigate to your workspace source directory and clone the repository. Select the
 cd ~/metr4202_ws/src
 # Use '-b hardware' for physical robot or '-b simulation' for Gazebo
 git clone -b <branch_name> https://github.com/BlazeCentral/metr4202_2025_team15.git
-'''
+```
 
 Environment Setup
 Run these commands in each new terminal session or add them to your ~/.bashrc. This sets the ROS environment and the robot model:
 
-'''bash
+```bash
+
 source /opt/ros/humble/setup.bash
 source ~/metr4202_ws/install/setup.bash
 export TURTLEBOT3_MODEL=waffle_pi
-'''
+```
 Build Workflow
 After cloning, or whenever code changes are made, rebuild the packages:
 
-Bash
+```bash
 
 cd ~/metr4202_ws
 colcon build --packages-select team15_exploration team15_perception
+```
+
 2.1. Simulation Setup
 Terminal 1 — Gazebo and SLAM/Navigation
 Launches the simulated robot and the combined SLAM and Nav2 stack.
 
-Bash
+```bash
 
 # Export robot model
 export TURTLEBOT3_MODEL=waffle_pi
@@ -76,19 +79,28 @@ ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
 # Launch Nav2 + SLAM
 ros2 launch turtlebot3_navigation2 navigation2.launch.py \
     slam:=True use_sim_time:=True
+```
+
 System Nodes Launch Options
 Launch any of the following options in separate terminals:
 
 Aruco Only (Perception):
 
-Bash
+```bash
+
 
 ros2 run team15_perception aruco_detect_publish
+```
+
+
 Exploration Only (Navigation):
 
-Bash
+```bash
+
 
 ros2 run team15_exploration explore_nav
+```
+
 Full System (Both): Launch Aruco in one terminal and Exploration in another.
 
 Bash
@@ -111,6 +123,7 @@ Pre-Launch Configuration (Workstation)
 Set ROS Domain ID: Update your ~/.bashrc to match the robot's ID.
 
 Bash
+
 
 vim ~/.bashrc
 # Add: export ROS_DOMAIN_ID={ROBOT_ID}
