@@ -44,6 +44,7 @@ Run these commands in each new terminal session or add them to your `~/.bashrc`.
 source /opt/ros/humble/setup.bash
 source ~/metr4202_ws/install/setup.bash
 export TURTLEBOT3_MODEL=waffle_pi
+'''
 
 #### Build Workflow
 
