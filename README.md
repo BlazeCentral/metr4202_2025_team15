@@ -1,4 +1,4 @@
-METR4202 Team 15 – TurtleBot3 Exploration + Perception
+# METR4202 Team 15 – TurtleBot3 Exploration + Perception
 
 This repository contains the software packages for autonomous exploration and ArUco marker perception on the TurtleBot3 Waffle Pi platform (ROS 2 Humble).
 
@@ -10,27 +10,16 @@ This repository contains the software packages for autonomous exploration and Ar
 
 * **team15_perception:** Contains the `aruco_detect_publish.py` node for ArUco detection and pose smoothing.
 
-* **rviz:** RViz2 configuration files (e.g., `my_config.rviz`).
 
-* **maps:** Generated map files (`.pgm` and `.yaml`).
+  
+# 1.2 Branch Structure
+This repository uses two primary branches:
 
-* **worlds:** Custom Gazebo world files (`.world`).
+simulation: Contains configurations, launch files, and parameters optimized for the Gazebo environment and simulated time (use_sim_time:=True).
 
-### 1.2. Core Nodes and Topics
+hardware: Contains configurations, launch files, and parameters tailored for the physical TurtleBot3 robot, including real-time settings (use_sim_time:=False) and hardware driver dependencies.
 
-* **Node: explore_nav**
-
-    * **Function:** Implements frontier-based exploration. Selects the next goal and submits it to Nav2.
-
-    * **Subscribes:** `/map`, Nav2 Action Topics.
-
-* **Node: aruco_detect_publish**
-
-    * **Function:** Detects ArUco markers, smooths the estimated pose, and publishes results.
-
-    * **Subscribes:** `/camera/image_raw`, `/tf`.
-
-    * **Publishes:** `/targets` (PoseArray), `/targets_viz` (MarkerArray).
+Additionally, the main branch mimics the hardware branch code. It contains our final report and README.md.
 
 ## 2. Install and Setup Instruction
 
@@ -46,7 +35,7 @@ cd ~/metr4202_ws/src
 git clone -b <branch_name> https://github.com/BlazeCentral/metr4202_2025_team15.git
 ```
 
-Environment Setup
+#### Environment Setup
 Run these commands in each new terminal session or add them to your ~/.bashrc. This sets the ROS environment and the robot model:
 
 ```bash
@@ -55,7 +44,7 @@ source /opt/ros/humble/setup.bash
 source ~/metr4202_ws/install/setup.bash
 export TURTLEBOT3_MODEL=waffle_pi
 ```
-Build Workflow
+#### Build Workflow
 After cloning, or whenever code changes are made, rebuild the packages:
 
 ```bash
@@ -64,8 +53,8 @@ cd ~/metr4202_ws
 colcon build --packages-select team15_exploration team15_perception
 ```
 
-2.1. Simulation Setup
-Terminal 1 — Gazebo and SLAM/Navigation
+### 2.1. Simulation Setup
+#### Terminal 1 — Gazebo and SLAM/Navigation
 Launches the simulated robot and the combined SLAM and Nav2 stack.
 
 ```bash
@@ -81,10 +70,10 @@ ros2 launch turtlebot3_navigation2 navigation2.launch.py \
     slam:=True use_sim_time:=True
 ```
 
-System Nodes Launch Options
+#### System Nodes Launch Options
 Launch any of the following options in separate terminals:
 
-Aruco Only (Perception):
+##### Aruco Only (Perception):
 
 ```bash
 
@@ -93,7 +82,7 @@ ros2 run team15_perception aruco_detect_publish
 ```
 
 
-Exploration Only (Navigation):
+##### Exploration Only (Navigation):
 
 ```bash
 
@@ -101,7 +90,7 @@ Exploration Only (Navigation):
 ros2 run team15_exploration explore_nav
 ```
 
-Full System (Both): Launch Aruco in one terminal and Exploration in another.
+###### Full System (Both): Launch Aruco in one terminal and Exploration in another.
 
 ```bash
 
@@ -112,7 +101,7 @@ ros2 run team15_exploration explore_nav
 
 
 ## 2.2. Hardware Setup
-Pre-Launch Configuration (Workstation)
+### Pre-Launch Configuration (Workstation)
 Set ROS Domain ID: Update your ~/.bashrc to match the robot's ID.
 
 ```bash
@@ -131,6 +120,7 @@ echo $ROS_DOMAIN_ID
 pip3 install scipy
 python3 -m pip install --upgrade --force-reinstall "numpy==1.21.5" "scipy==1.8.0"
 ```
+(You may still get an error with one of the function names in explore nav - terminal should tell you what to change it to though)
 
 ### Terminal 1 — Robot Bringup (On TurtleBot via SSH)
 ```bash
@@ -151,44 +141,52 @@ Launches the real-time Nav2 stack and visualization. Note use_sim_time:=False fo
 
 ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=False slam:=True
 ```
-RViz Configuration Check: After launching, verify active topics (ros2 topic list). In RViz, confirm the map, robot, and visualization topics (especially /targets_viz for Aruco) are correctly added and displaying data.
 
-Terminal 4/5 — System Nodes Launch Options (On Workstation)
+#### RViz Configuration Check:
+After launching, verify active topics (ros2 topic list). In RViz, confirm the map, robot, and visualization topics (especially /targets_viz for Aruco) are correctly added and displaying data.
+
+### Terminal 4/5 — System Nodes Launch Options (On Workstation)
 Launch any of the following options in separate terminals:
 
-Aruco Only (Perception):
+#### Aruco Only (Perception):
 
 ```bash
 
 
 ros2 run team15_perception aruco_detect_publish
 ```
-Exploration Only (Navigation):
+#### Exploration Only (Navigation):
 
 ```bash
 
 
 ros2 run team15_exploration explore_nav
 ```
-Full System (Both): Launch Aruco in one terminal and Exploration in another.
+#### Full System (Both): Launch Aruco in one terminal and Exploration in another.
+First launch:
 
 ```bash
 
 ros2 run team15_perception aruco_detect_publish
 ```
 
-# In a new terminal:
+Then in another terminaL:
+
 ```bash
 
 ros2 run team15_exploration explore_nav
 ```
 
-3. References and Branch Description
-This repository uses two primary branches:
+# 3. References and Branch Description
 
-simulation: Contains configurations, launch files, and parameters optimized for the Gazebo environment and simulated time (use_sim_time:=True).
+# Online Reference:
+The following Github repository was used to help with the development of the Aruco Detection Node:
+https://github.com/Rishit-katiyar/ArUcoMarkerDetector/tree/main
 
-hardware: Contains configurations, launch files, and parameters tailored for the physical TurtleBot3 robot, including real-time settings (use_sim_time:=False) and hardware driver dependencies.
+The repository of provided aruco course resources was also used to help with development: https://github.com/METR4202/metr4202_aruco_explore
+## AI:
+A combination of Cursor AI, ChatGPT and Gemini was used to develop much of the foundations of the code. Pseudocode and flow charts where inserted into the chats in order to intelligently develop out ideas into working prototype code which were adjusted and customised for the robot based on our needs and performance. The code was finalised with human hands especially the weightings and specific parameters, and the heuristic scoring code.
 
-
+# Documents
+Pracs 1-5 and the provided
 
