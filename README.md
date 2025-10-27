@@ -16,7 +16,7 @@ Contains the `aruco_detect_publish.py` node for ArUco detection and pose smoothi
 
   
 ## 1.2 Branch Structure
-This repository uses two primary branches plus main:
+This repository uses two primary branches:
 
 #### simulation:
 Contains configurations, launch files, and parameters optimized for the Gazebo environment and simulated time (use_sim_time:=True).
@@ -24,8 +24,6 @@ Contains configurations, launch files, and parameters optimized for the Gazebo e
 #### hardware: 
 Contains configurations, launch files, and parameters tailored for the physical TurtleBot3 robot, including real-time settings (use_sim_time:=False) and hardware driver dependencies.
 
-#### main
-Additionally, the main branch mimics the hardware branch code. It contains our final report and README.md.
 
 # 2. Install and Setup Instruction
 
@@ -37,7 +35,7 @@ Navigate to your workspace source directory and clone the repository. Select the
 
 ```bash
 cd ~/metr4202_ws/src
-# Use '-b hardware' for physical robot or '-b simulation' for Gazebo
+# Use '-b hardware_branch' for physical robot or '-b simulation_branch' for Gazebo
 git clone -b <branch_name> https://github.com/BlazeCentral/metr4202_2025_team15.git
 ```
 
