@@ -100,7 +100,7 @@ class ExploreNavNode(Node):
             cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
             yaw = math.atan2(siny_cosp, cosy_cosp)
             self.robot_yaw = yaw  
-
+            # Log
             self.get_logger().info(
                 f"Robot position: x={self.robot_pose[0]:.2f}, y={self.robot_pose[1]:.2f}, yaw={math.degrees(yaw):.1f}°") 
 
@@ -141,6 +141,15 @@ class ExploreNavNode(Node):
 
 
     def find_frontier_points(self, frontier_map):
+        '''
+        Identify and cluster frontier cells in the costmap, then compute representative
+        world-coordinate midpoints for navigation.
+
+        Uses a breadth-first search (BFS) to group 8-connected frontier cells into clusters,
+        filters small clusters, and converts their mean map indices to world coordinates.
+        Nearby frontiers in front of the robot may be slightly extended outward to improve
+        exploration goal placement.
+        '''
         width = frontier_map.info.width
         height = frontier_map.info.height
         resolution = frontier_map.info.resolution
@@ -157,15 +166,25 @@ class ExploreNavNode(Node):
                     (1, -1),  (1, 0), (1, 1)]
 
         def bfs(start_y, start_x):
+            '''
+            Perform a breadth-first search (BFS) from a starting frontier cell to
+            collect all 8-connected neighboring frontier cells into a single cluster.
+            '''
+            # Init queue
             q = deque([(start_y, start_x)])
             cluster = []
             visited[start_y, start_x] = True
+
+            # Expand search until no more frontiers
             while q:
                 y, x = q.popleft()
                 cluster.append((y, x))
+               # Explore all connected 8 nieighbours
                 for dy, dx in neighbors:
                     ny, nx = y + dy, x + dx
+                    # Check bounds (dont access outside map)
                     if 0 <= ny < height and 0 <= nx < width:
+                         # Add neighbour to cluster if frontier/not visited
                         if frontier_mask[ny, nx] and not visited[ny, nx]:
                             visited[ny, nx] = True
                             q.append((ny, nx))
@@ -175,8 +194,11 @@ class ExploreNavNode(Node):
         clusters = []
         for y in range(height):
             for x in range(width):
+                # If valid cluster
                 if frontier_mask[y, x] and not visited[y, x]:
+                    # Perform BFS
                     cluster = bfs(y, x)
+                    # Size Filter
                     if SIZE_FILTER and len(cluster) < MIN_CLUSTER_SIZE:
                         continue
                     clusters.append(cluster)
@@ -191,6 +213,7 @@ class ExploreNavNode(Node):
         # Compute midpoints
         points = []
         for cluster in clusters:
+            # Midpoints
             mean_y = int(np.mean([p[0] for p in cluster]))
             mean_x = int(np.mean([p[1] for p in cluster]))
             world_x = origin.x + (mean_x + 0.5) * resolution
@@ -198,15 +221,18 @@ class ExploreNavNode(Node):
 
             # Extend away from robot
             if self.robot_pose is not None:
+                #relative pose
                 rx, ry = self.robot_pose
                 dx = world_x - rx
                 dy = world_y - ry
                 ryaw = self.robot_yaw
 
+                #Find displacment and angular delta
                 length = math.hypot(dx, dy)
                 goal_angle = math.atan2(dy, dx)
                 angle_diff = abs((goal_angle - ryaw + math.pi) % (2 * math.pi) - math.pi)  # normalize to [-pi, pi]
 
+               # Extend the point away from the robot
                 if length > 0 and length < EXTEND_DIST_THRES and angle_diff < math.radians(90): # extend if close and in front
                     extend_dist = EXTEND_DIST  # meters
                     world_x += dx / length * extend_dist
@@ -231,6 +257,7 @@ class ExploreNavNode(Node):
         rx, ry = self.robot_pose 
         ryaw = self.robot_yaw  
 
+        # cost map processing
         width = costmap.info.width
         height = costmap.info.height
         resolution = costmap.info.resolution
@@ -278,10 +305,9 @@ class ExploreNavNode(Node):
         # sort by score descending (largest score = best)
         scored_points.sort(key=lambda x: x[0], reverse=True)
 
+        # Select best goal
         self.get_logger().info(f"1st place score: {scored_points[0]}")
-
         best_point = scored_points[0][1]
-
         self.current_goal = best_point
         
         return best_point
@@ -300,7 +326,8 @@ class ExploreNavNode(Node):
 
             goal_msg = NavigateToPose.Goal()
             goal_msg.pose = goal
-
+             
+            #Goal sending/msg comms
             if self._nav2_action_client.server_is_ready():
                 self._nav2_action_client.send_goal_async(goal_msg)
                 self.get_logger().info(f"Sent goal: x={goal_pos.x:.2f}, y={goal_pos.y:.2f}")
