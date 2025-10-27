@@ -72,11 +72,13 @@ class ArucoDetectPublishNode(Node):
 
     def _on_image(self, msg: Image):
         """Process camera image and detect ArUco markers."""
+        # Check calibration rx
         if not self.calibration_received:
             return
-
+        # Convert img to cv format
         try:
             cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        # Debug messaage
         except Exception as e:
             self.get_logger().error(f"Image conversion failed: {e}")
             return
@@ -242,7 +244,7 @@ class ArucoDetectPublishNode(Node):
         pose_array.poses = poses
         self.targets_pub.publish(pose_array)
         
-        # Publish visualization
+        # Publish visualization to rviz
         if markers:
             marker_array = MarkerArray()
             marker_array.markers = markers
