@@ -15,19 +15,19 @@ from scipy.ndimage import convolve
 
 # filter constants and active filters
 SIZE_FILTER = True
-MIN_CLUSTER_SIZE = 5 # number of cells
+MIN_CLUSTER_SIZE = 3 # number of cells
 VALUE_RADIUS = 1.0  # radius for calculating a waypoints exploration value
 SIZE_WEIGHT = 3.0
-DIST_WEIGHT = -2.0 # negative value prefers close waypoints
-ANGLE_WEIGHT = 5.0  
+DIST_WEIGHT = -5.0 # negative value prefers close waypoints
+ANGLE_WEIGHT = 6.0  
 
-EXTEND_DIST_THRES = 3.0  # dist from which waypoints begin to be extended
+EXTEND_DIST_THRES = 1.5  # dist from which waypoints begin to be extended
 EXTEND_DIST = 0.5  
 RETRACT_DIST = 0.0
 
 
 class ExploreNavNode(Node):
-    '''
+     '''
     This node handles map processing to identify frontiers, 
     grouping frontiers into a list of candidate waypoints, 
     and decision making on next goal waypoint.
@@ -62,7 +62,7 @@ class ExploreNavNode(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self.create_timer(1.0, self.update_robot_pose)  # 1 Hz
-        self.create_timer(3.0, self.set_goal) # set new goal periodically
+        self.create_timer(2.5, self.set_goal) # set new goal periodically
 
     def map_callback(self, msg):
         '''
@@ -87,7 +87,7 @@ class ExploreNavNode(Node):
         self.get_logger().info('Published frontier map and points')
 
     def update_robot_pose(self):
-        '''
+         '''
         Performs tf operations to determine robot pose. Asynchronous, updates every second.
         '''
         try:
@@ -110,17 +110,20 @@ class ExploreNavNode(Node):
 
     def find_frontiers(self, costmap_msg):
         '''
-        Performs convolution to locate frontier boundaries. 
-        Publishes to /frontiers topic to enable visualisation.
-        Returns list for use in CostMap.data object.
+        Groups frontiers using BFS. Frontier cells touching are considered to be connected nodes, 
+        search is finished when no more connected nodes.
+        Includes filtering small / noisy frontiers.
+        Points are considered midpoint of list of points.
+        Returns list of midpoints indicating candidate waypoints.
         '''
+        
         width = costmap_msg.info.width
         height = costmap_msg.info.height
         data = np.array(costmap_msg.data, dtype=np.int8).reshape((height, width))
 
         # Binary masks
         unknown = (data == -1)
-        free = (data >= 0) & (data < 60)  # traversable area
+        free = (data >= 0) & (data < 75)  # traversable area
 
         # 8-connected neighborhood kernel
         kernel = np.ones((3, 3), dtype=int)
@@ -138,13 +141,6 @@ class ExploreNavNode(Node):
 
 
     def find_frontier_points(self, frontier_map):
-        '''
-        Groups frontiers using BFS. Frontier cells touching are considered to be connected nodes, 
-        search is finished when no more connected nodes.
-        Includes filtering small / noisy frontiers.
-        Points are considered midpoint of list of points.
-        Returns list of midpoints indicating candidate waypoints.
-        '''
         width = frontier_map.info.width
         height = frontier_map.info.height
         resolution = frontier_map.info.resolution
@@ -292,7 +288,7 @@ class ExploreNavNode(Node):
 
 
     def set_goal(self):
-        '''
+         '''
         Sends selected goal to nav2 stack.
         '''
         goal_pos = self.select_goal()
