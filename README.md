@@ -16,7 +16,7 @@ Contains the `aruco_detect_publish.py` node for ArUco detection and pose smoothi
 
   
 ## 1.2 Branch Structure
-This repository uses two primary branches plus main:
+This repository uses two primary branches:
 
 #### simulation:
 Contains configurations, launch files, and parameters optimized for the Gazebo environment and simulated time (use_sim_time:=True).
@@ -24,8 +24,6 @@ Contains configurations, launch files, and parameters optimized for the Gazebo e
 #### hardware: 
 Contains configurations, launch files, and parameters tailored for the physical TurtleBot3 robot, including real-time settings (use_sim_time:=False) and hardware driver dependencies.
 
-#### main
-Additionally, the main branch mimics the hardware branch code. It contains our final report and README.md.
 
 # 2. Install and Setup Instruction
 
